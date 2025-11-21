@@ -7,7 +7,7 @@
     ~~安装Python环境？~~
     现在一次性帮你打包好了，当然，如果你不打算下载我打包的release版本使用的话，你仍然需要按照下文的办法手动安装模型
 # 工具GUI
- ![alt text](工具GUI.png)
+![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E5%B7%A5%E5%85%B7GUI.png)
 # 安装办法
 ### 即开即用版本
     release版本直接 点击我 即可下载，下载后解压打开Aletheia-Lens.exe 直接运行即可，程序使用nuitka 打包，若需要自行打包可以下载源码看下边python安装方法
@@ -29,7 +29,9 @@ python main.py
 
 考虑到用到的deepcream模型是onnx导出过的，这个就集成进models文件夹里了
 
-你需要下载以下两个模型：<a href="https://github.com/natethegreate/hent-AI">hent-AI</a>(打开后往下找到最新的228步模型打开dropbox网盘，无需登录可以满速下载)  
+你需要下载以下两个模型：
+
+<a href="https://github.com/natethegreate/hent-AI">hent-AI</a>(打开后往下找到最新的228步模型打开dropbox网盘，无需登录可以满速下载)  
 
 <a href="https://openmodeldb.info/models/4x-Fatal-Pixels">4x-Fatal-Pixels.pth</a> 
 
@@ -44,13 +46,13 @@ python main.py
 **另外这个工具只支持二次元图片**
 先选择模式，如果只有单图就选单图，如果是在一堆文件夹里面则选择文件夹模式
 
-![alt text](模式.png)
+![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E6%A8%A1%E5%BC%8F.png)
 
 然后选择输入输出文件夹，输入文件夹就是你要修复的图片所在的文件夹，输出文件夹就是修复后的图片存放的文件夹
 
 输出文件夹会默认保留原先文件夹的结构，同时最顶层文件夹会添加after_后缀
 
-![alt text](选择文件夹.png)
+![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E9%80%89%E6%8B%A9%E6%96%87%E4%BB%B6%E5%A4%B9.png)
 
 接着选择模式，对于大部分本子用的黑条去码，选择模式I，对色块的漫画去码效果应该是不赖的
 
@@ -58,12 +60,12 @@ python main.py
 
 模式III不是很建议使用，出来的效果有时很诡异
 
-![alt text](处理模式.png)
+![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E5%A4%84%E7%90%86%E6%A8%A1%E5%BC%8F.png)
 
 接着一切就绪，点击开始处理即可
 需要注意的是，执行前请确保模块都加载好了
 
-![alt text](模型状态.png)
+![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E6%A8%A1%E5%9E%8B%E7%8A%B6%E6%80%81.png)
 
 # 工具说明
 本工具基于<a href="https://github.com/cookieY/DeepCreamPy">deepcreampy</a> 和 <a href="https://github.com/natethegreate/hent-AI">hent-AI</a> 
@@ -71,9 +73,9 @@ python main.py
 
 前者提供对涂抹部分去码，中者用于识别并涂抹码区，后者用于放大功能
 
-使用了前人 fastapi 的调用处理过程，在基础上修改了一些调用，并做了一个GUI窗体
+使用了前人 [fastapi](https://github.com/fajlkdsjfajdf/deepcreampy-fastapi) 的调用处理过程，在基础上修改了一些调用，并做了一个GUI窗体
 
-以及使用了免费字体：
+以及使用了免费字体：<a href="http://www.sucaijishi.com/font-37-792-1.html">素材集市康康体</a>
 
 感谢以上
 # 报错或者疑难杂症
