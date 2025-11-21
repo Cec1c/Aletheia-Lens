@@ -1,0 +1,8 @@
+
+pakversion.txt
+__pycache__/
+_internal/
+build/
+dist/
+*.h5
+*.pth
