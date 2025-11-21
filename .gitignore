@@ -4,5 +4,7 @@ __pycache__/
 _internal/
 build/
 dist/
+al-venv/
+after_image/
 *.h5
 *.pth
