@@ -1,8 +1,7 @@
 # Aletheia-Lens
 一个基于deepcreampy的自动涂抹识别去码工具，带有GUI界面和打包版本，极易使用
 # 简介
-一个使用了deepcreampy和hent-AI的来实现自动涂抹和自动去码的AI工具 [点我下载](https://github.com/Cec1c/Aletheia-Lens/releases/download/onefile/Aletheia-Lens-release_Ver1.0.7z)
-~~部署API？~~
+一个使用了deepcreampy和hent-AI的来实现自动涂抹和自动去码的AI工具 [点我一键下载](https://github.com/Cec1c/Aletheia-Lens/releases/download/withdir/Aletheia-Lens_release_dirV1.0.7z)
     ~~安装Python环境？~~
 
     现在一次性帮你打包好了，当然，如果你不打算下载我打包的release版本使用的话，你仍然需要按照下文的办法手动安装模型
@@ -10,7 +9,9 @@
 ![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E5%B7%A5%E5%85%B7GUI.png)
 # 安装办法
 ### 即开即用版本
-release版本直接 [点击我](https://github.com/Cec1c/Aletheia-Lens/releases/download/onefile/Aletheia-Lens-release_Ver1.0.7z) 即可下载，下载后解压打开Aletheia-Lens.exe 直接运行即可
+release版本直接 [点击我](https://github.com/Cec1c/Aletheia-Lens/releases/download/withdir/Aletheia-Lens_release_dirV1.0.7z) 
+
+即可下载，下载后解压打开Aletheia-Lens.exe 直接运行即可
 
 程序使用pyinstaller打包，若需要自行打包可以下载源码看下边python安装方法
 
@@ -47,7 +48,9 @@ python main.py
 
 # 使用办法
 实际上相当简单啊，我相信大多数人一打开就会了
+
 **另外这个工具只支持二次元图片**
+
 先选择模式，如果只有单图就选单图，如果是在一堆文件夹里面则选择文件夹模式
 
 ![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E6%A8%A1%E5%BC%8F.png)
@@ -67,12 +70,15 @@ python main.py
 ![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E5%A4%84%E7%90%86%E6%A8%A1%E5%BC%8F.png)
 
 接着一切就绪，点击开始处理即可
+
 需要注意的是，执行前请确保模块都加载好了
 
 ![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E6%A8%A1%E5%9E%8B%E7%8A%B6%E6%80%81.png)
 
 # 工具说明
+
 本工具基于<a href="https://github.com/cookieY/DeepCreamPy">deepcreampy</a> 和 <a href="https://github.com/natethegreate/hent-AI">hent-AI</a> 
+
 还使用了<a href="https://openmodeldb.info/models/4x-Fatal-Pixels">4x-Fatal-Pixels.pth</a> 
 
 前者提供对涂抹部分去码，中者用于识别并涂抹码区，后者用于放大功能
@@ -82,7 +88,9 @@ python main.py
 以及使用了免费字体：<a href="http://www.sucaijishi.com/font-37-792-1.html">素材集市康康体</a>
 
 感谢以上
+
 # 报错或者疑难杂症
+
 测试倒是没怎么做，这是个花了三天做出来的简单程序，碰到问题是难免的，可以交个issue如果加入Q群反馈 ：Q群占位
 
 

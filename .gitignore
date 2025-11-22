@@ -8,3 +8,5 @@ al-venv/
 after_image/
 *.h5
 *.pth
+*.spec
+*.ttf
