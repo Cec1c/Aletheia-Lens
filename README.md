@@ -1,10 +1,15 @@
 # Aletheia-Lens
 一个基于deepcreampy的自动涂抹识别去码工具，带有GUI界面和打包版本，极易使用
 # 简介
-一个使用了deepcreampy和hent-AI的来实现自动涂抹和自动去码的AI工具 [点我一键下载](https://github.com/Cec1c/Aletheia-Lens/releases/download/withdir/Aletheia-Lens_release_dirV1.0.7z)
-    ~~安装Python环境？~~
+一个使用了deepcreampy和hent-AI的来实现自动涂抹和自动去码的AI工具 
 
-    现在一次性帮你打包好了，当然，如果你不打算下载我打包的release版本使用的话，你仍然需要按照下文的办法手动安装模型
+[点我一键下载](https://github.com/Cec1c/Aletheia-Lens/releases/download/withdir/Aletheia-Lens_release_dirV1.0.7z)
+
+~~部署API?~~
+
+~~安装Python环境？~~
+
+现在一次性帮你打包好了，当然，如果你不打算下载我打包的release版本使用的话，你仍然需要按照下文的办法手动安装模型
 # 工具GUI
 ![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E5%B7%A5%E5%85%B7GUI.png)
 # 安装办法
