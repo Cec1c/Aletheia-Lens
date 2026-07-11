@@ -1,10 +1,15 @@
 import numpy as np
-import onnxruntime
 import config
+from onnx_runtime import create_session
 
-session_options = onnxruntime.SessionOptions()
-session_bar = onnxruntime.InferenceSession(config.deepcreampy_bar_model, session_options)
-session_mosaic = onnxruntime.InferenceSession(config.deepcreampy_mosaic_model, session_options)
+session_bar = create_session(
+    config.deepcreampy_bar_model,
+    providers=["CPUExecutionProvider"],
+)
+session_mosaic = create_session(
+    config.deepcreampy_mosaic_model,
+    providers=["CPUExecutionProvider"],
+)
 
 
 def predict(censored, mask, is_mosaic=bool):

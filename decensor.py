@@ -4,10 +4,10 @@ Cleaned from: DeepCreamPy/decensor.py
 
 import sys
 from multiprocessing.pool import ThreadPool
+import cv2
 import numpy as np
 from PIL import Image
 from tools import image_tool
-from scipy.ndimage import measurements
 from predict import predict
 from deepcreampy.utils import image_to_array, expand_bounding
 from tools.decorators import timer_decorator
@@ -26,12 +26,17 @@ def find_mask(colored):
 # Performant connected-components algorithm.
 def find_regions(image, mask_color):
     pixels = np.array(image)
-    array = np.all(pixels == mask_color, axis=2)
-    labeled, n_components = measurements.label(array)
+    array = np.all(pixels == mask_color, axis=2).astype(np.uint8)
+    n_components, labeled = cv2.connectedComponentsWithAlgorithm(
+        array,
+        4,
+        cv2.CV_32S,
+        cv2.CCL_WU,
+    )
     indices = np.moveaxis(np.indices(array.shape), 0, -1)[:, :, [1, 0]]
 
     regions = []
-    for index in range(1, n_components + 1):
+    for index in range(1, n_components):
         regions.append(indices[labeled == index].tolist())
     regions.sort(key=len, reverse=True)
     return regions

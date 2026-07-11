@@ -5,8 +5,15 @@ _internal/
 build/
 dist/
 al-venv/
+.verification/
 after_image/
 *.h5
 *.pth
+models/mrcnn/*.onnx
+models/mrcnn/saved_model/
+models/esrgan/*.onnx
+models/esrgan/*.onnx.data
 *.spec
+!main.spec
 *.ttf
+!font/sckkt.ttf

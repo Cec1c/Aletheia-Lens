@@ -9,7 +9,7 @@
 # 简介
 一个使用了deepcreampy和hent-AI的来实现自动涂抹和自动去码的AI工具 
 
-[点我一键下载](https://github.com/Cec1c/Aletheia-Lens/releases/download/withdir/Aletheia-Lens_release_dirV1.0.7z)
+[前往 Release 页面下载](https://github.com/Cec1c/Aletheia-Lens/releases/latest)
 
 ~~部署API?~~
 
@@ -20,9 +20,13 @@
 ![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E5%B7%A5%E5%85%B7GUI.png)
 # 安装办法
 ### 即开即用版本
-release版本直接 [点击我](https://github.com/Cec1c/Aletheia-Lens/releases/download/withdir/Aletheia-Lens_release_dirV1.0.7z) 
 
-即可下载，下载后解压打开Aletheia-Lens.exe 直接运行即可
+每个新版本提供两个压缩包：
+
+- `*_cpu.7z`：体积较小，使用 CPU。
+- `*_cuda12.7z`：NVIDIA GPU 版，内置 CUDA 12 / cuDNN 9 运行库。
+
+下载后解压并运行 `Aletheia-Lens.exe`。程序日志会明确显示 ONNX 会话已启用 CUDA、混合状态还是纯 CPU。CUDA 包会让 Mask R-CNN 检测与 ESRGAN 放大优先使用 GPU；DeepCreamPy 的 `bar.onnx` / `mosaic.onnx` 在 CUDA12/cuDNN9 下会产生非有限值，因此明确固定到 CPU，日志会说明这是兼容性策略而不是静默回退。
 
 程序使用pyinstaller打包，若需要自行打包可以下载源码看下边python安装方法
 
@@ -31,10 +35,19 @@ release版本直接 [点击我](https://github.com/Cec1c/Aletheia-Lens/releases/
 
 这个项目构建在**Python 3.10.11**下，尚不清楚其他版本是否会出现问题，如遇兼容性问题可告知我我在这留下信息
 
-项目下载下来或者克隆下来打开项目根目录打开cmd输入
-``` 
-pip install -r requirements.txt 
+CPU 环境：
+
 ```
+pip install -r requirements.txt
+```
+
+NVIDIA GPU 环境：
+
+```
+pip install -r requirements-gpu.txt
+```
+源码运行 RAR 压缩包还需要安装 7-Zip，并确保 `7z.exe` 位于默认安装目录或 `PATH`；打包版已经内置所需文件。
+
 安装完成后（你需要先把下边模型安装齐全）
 ```
 python main.py
@@ -47,13 +60,13 @@ python main.py
 
 考虑到用到的deepcream模型是onnx导出过的，这个就集成进models文件夹里了
 
-你需要下载以下两个模型：
+运行时需要以下 ONNX 文件：
 
-<a href="https://github.com/natethegreate/hent-AI">hent-AI</a>(打开后往下找到最新的228步模型打开dropbox网盘，无需登录可以满速下载)  
+- `models/mrcnn/weights.onnx`
+- `models/esrgan/4x-Fatal-Pixels.onnx`
+- `models/esrgan/4x-Fatal-Pixels.onnx.data`
 
-<a href="https://openmodeldb.info/models/4x-Fatal-Pixels">4x-Fatal-Pixels.pth</a> 
-
-他们分别放到models/mrcnn 和 models/esrgan 文件夹下
+DeepCreamPy 的 `bar.onnx` 和 `mosaic.onnx` 已包含在仓库中。其余模型由项目的模型 Release 提供。
 
 注意命名必须对的上
 
@@ -64,13 +77,15 @@ python main.py
 
 **另外这个工具只支持二次元图片**
 
-先选择模式，如果只有单图就选单图，如果是在一堆文件夹里面则选择文件夹模式
+先选择输入类型：单图片、文件夹或压缩包模式。压缩包模式支持 ZIP、7Z 和 RAR，处理后保留包内目录结构；保留结构的文件夹和压缩包会按“源完整路径 + 处理模式”创建独立的 `after_<名称>_<短哈希>` 目录，结果文件在完整原文件名后追加 `.processed.png`。平铺模式使用输入根、源相对路径和处理模式生成稳定 SHA-256 名称，避免目录压平或跨任务复用输出目录时同名覆盖。文件夹输出目录必须位于输入目录之外。
+
+为避免压缩炸弹或链接越界，单个压缩包最多包含 20,000 个成员、解压后总大小最多 20 GiB。解压前会拒绝绝对路径、父目录跳转、Windows 设备名、规范化后冲突的目标，以及符号链接、目录联接和 RAR 重定向，并检查临时目录剩余空间。
 
 ![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E6%A8%A1%E5%BC%8F.png)
 
 然后选择输入输出文件夹，输入文件夹就是你要修复的图片所在的文件夹，输出文件夹就是修复后的图片存放的文件夹
 
-输出文件夹会默认保留原先文件夹的结构，同时最顶层文件夹会添加after_后缀
+输出文件夹会默认保留原先文件夹的结构，同时最顶层使用 `after_<名称>_<短哈希>` 区分不同输入和处理模式。
 
 ![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E9%80%89%E6%8B%A9%E6%96%87%E4%BB%B6%E5%A4%B9.png)
 
@@ -92,7 +107,7 @@ python main.py
 
 本工具基于<a href="https://github.com/cookieY/DeepCreamPy">deepcreampy</a> 和 <a href="https://github.com/natethegreate/hent-AI">hent-AI</a> 
 
-还使用了<a href="https://openmodeldb.info/models/4x-Fatal-Pixels">4x-Fatal-Pixels.pth</a> 
+还使用了<a href="https://openmodeldb.info/models/4x-Fatal-Pixels">4x-Fatal-Pixels</a> 的 ONNX 转换模型。
 
 前者提供对涂抹部分去码，中者用于识别并涂抹码区，后者用于放大功能
 
@@ -104,7 +119,7 @@ python main.py
 
 # 报错或者疑难杂症
 
-测试倒是没怎么做，这是个花了三天做出来的简单程序，碰到问题是难免的，可以交个issue
+项目包含 ONNX、CUDA 打包、压缩包安全和批量输出的自动化回归测试；如仍遇到问题可以提交 issue。
 
 或者其他疑难杂症加入Q群反馈 ：829569018
 

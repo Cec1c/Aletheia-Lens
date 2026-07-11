@@ -826,15 +826,17 @@ def refine_detections_graph(rois, probs, deltas, window, config):
 
     # TODO: Filter out boxes with zero area
 
-    # Filter out background boxes
-    keep = tf.where(class_ids > 0)[:, 0]
-    # Filter out low confidence boxes
+    # Filter out background and low-confidence boxes in one boolean mask.
+    # tf.sets.intersection exports to ScatterElements and breaks on empty sets in ORT.
     if config.DETECTION_MIN_CONFIDENCE:
-        conf_keep = tf.where(class_scores >= config.DETECTION_MIN_CONFIDENCE)[:, 0]
-        keep = tf.sets.intersection(
-            tf.expand_dims(keep, 0), tf.expand_dims(conf_keep, 0)
-        )
-        keep = tf.sparse.to_dense(keep)[0]
+        keep = tf.where(
+            tf.logical_and(
+                class_ids > 0,
+                class_scores >= config.DETECTION_MIN_CONFIDENCE,
+            )
+        )[:, 0]
+    else:
+        keep = tf.where(class_ids > 0)[:, 0]
 
     # Apply per-class NMS
     # 1. Prepare variables
@@ -871,9 +873,8 @@ def refine_detections_graph(rois, probs, deltas, window, config):
     # 3. Merge results into one list, and remove -1 padding
     nms_keep = tf.reshape(nms_keep, [-1])
     nms_keep = tf.gather(nms_keep, tf.where(nms_keep > -1)[:, 0])
-    # 4. Compute intersection between keep and nms_keep
-    keep = tf.sets.intersection(tf.expand_dims(keep, 0), tf.expand_dims(nms_keep, 0))
-    keep = tf.sparse.to_dense(keep)[0]
+    # nms_keep is already produced by gathering indices from keep.
+    keep = nms_keep
     # Keep top detections
     roi_count = config.DETECTION_MAX_INSTANCES
     class_scores_keep = tf.gather(class_scores, keep)

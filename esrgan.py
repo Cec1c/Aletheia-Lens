@@ -1,19 +1,38 @@
-# esrgan 超分辨率
+# esrgan 超分辨率 (ONNX Runtime 版本)
 import cv2
 import numpy as np
-from mrcnn.config import Config
-from mrcnn import model as modellib, utils
 from tools import image_tool
 from tools.green_mask_project_mosaic_resolution import get_mosaic_res
 from tools.decorators import timer_decorator
-from ColabESRGAN.esrgan import EsrGan
 import detector
-import os
 import config
+from onnx_runtime import create_session
 
+# 加载 ONNX 模型（替代原先的 PyTorch 模型，减小约 2GB 打包体积）
+_esrgan_session = create_session(config.esrgan_model)
 
+def _run_esrgan_onnx(img: np.ndarray) -> np.ndarray:
+    """
+    使用 ONNX Runtime 进行 ESRGAN 超分辨率推理。
+    输入: RGB 图像 (H, W, 3), uint8
+    输出: RGB 图像 (H*4, W*4, 3), uint8
+    """
+    # 预处理: 归一化 + HWC→CHW + 添加 batch 维度
+    # image_tool 在进入处理链时已经统一为 RGB。
+    img_f = img.astype(np.float32) / 255.0
+    img_chw = np.transpose(img_f, (2, 0, 1))  # HWC → CHW
+    img_batch = np.expand_dims(img_chw, axis=0)  # (1, 3, H, W)
 
-model = EsrGan(config.esrgan_model)
+    # ONNX 推理
+    output = _esrgan_session.run(['output'], {'input': img_batch})[0]
+
+    # 后处理: 移除 batch → CHW→HWC → 去归一化
+    output = np.squeeze(output, axis=0)  # (3, H*4, W*4)
+    output = np.clip(output, 0, 1)
+    output_hwc = np.transpose(output, (1, 2, 0))  # CHW → HWC
+    output_uint8 = (output_hwc * 255.0).round().astype(np.uint8)
+
+    return output_uint8
 
 
 @timer_decorator
@@ -24,7 +43,6 @@ def esrgan(image_bytes: bytes):
     image = splice_masks(image, image_gan, masks)
     cov, mask = detector.apply_cover(image, masks, 0)
     return image_tool.npimage2bytes(image), image_tool.npimage2bytes(cov)
-
 
 
 def get_gan_img(image):
@@ -42,8 +60,9 @@ def get_gan_img(image):
     mini_img = cv2.resize(image_r, (int(image_r.shape[1] / granularity), int(image_r.shape[0] / granularity)),
                       interpolation=cv2.INTER_AREA)
 
-    image_gan = model.run_esrgan(mini_img, mosaic_res=granularity)
-    image_gan = cv2.resize(image_gan, (image.shape[1], image.shape[0])) # 将gan图像转成和原图同样大小
+    # 使用 ONNX Runtime 替代原先的 PyTorch EsrGan
+    image_gan = _run_esrgan_onnx(mini_img)
+    image_gan = cv2.resize(image_gan, (image.shape[1], image.shape[0]))  # 将gan图像转成和原图同样大小
     return image_gan
 
 @timer_decorator
@@ -54,7 +73,7 @@ def get_masks(image):
     """
     image_r = image.copy()
     image_r = image_tool.del_alpha_channel(image_r)  # 删除图像的alpha通道
-    r = detector.model.detect([image_r], verbose=0)[0]
+    r = detector.detect_image(image_r)
     remove_indices = np.where(r['class_ids'] != 2)
     new_masks = np.delete(r['masks'], remove_indices, axis=2)
     return new_masks
@@ -68,4 +87,3 @@ def splice_masks(image, gan_image, mask):
         return result
     else:
         return image
-

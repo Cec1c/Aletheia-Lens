@@ -1,13 +1,252 @@
 import dearpygui.dearpygui as dpg
+import hashlib
+import ntpath
 import os
+import stat
+import sys
 import threading
+import unicodedata
+import zipfile
+import tempfile
+import shutil
 from tkinter import filedialog
 import tkinter as tk
+import config
+# py7zr 和 rarfile 仅在压缩包模式时需要，设为可选导入
+try:
+    import py7zr
+    _HAS_7Z = True
+except ImportError:
+    py7zr = None
+    _HAS_7Z = False
+try:
+    import rarfile
+    _HAS_RAR = True
+except ImportError:
+    rarfile = None
+    _HAS_RAR = False
 
 
 # 初始设置为False
 PROCESSER_AVAILABLE = False
 process_image_stream = None  # 全局变量存储处理函数
+MAX_ARCHIVE_MEMBERS = 20_000
+MAX_ARCHIVE_UNCOMPRESSED_BYTES = 20 * 1024**3
+ARCHIVE_FREE_SPACE_RESERVE_BYTES = 512 * 1024**2
+WINDOWS_RESERVED_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    "CONIN$",
+    "CONOUT$",
+    *(f"COM{index}" for index in range(1, 10)),
+    *(f"LPT{index}" for index in range(1, 10)),
+}
+
+
+def _png_output_name(filename):
+    """Return a filename whose extension matches the PNG encoder."""
+    return f"{filename}.processed.png"
+
+
+def _flat_png_output_name(input_dir, relative_path, filename, mode):
+    """Return a stable PNG name for a flattened source path."""
+    normalized_root = os.path.normcase(os.path.realpath(input_dir)).replace("\\", "/")
+    normalized_dir = "" if relative_path == "." else relative_path.replace("\\", "/").strip("/")
+    source_path = f"{normalized_dir}/{filename}" if normalized_dir else filename
+    source_key = f"{normalized_root}\0{source_path}\0mode={mode}"
+    digest = hashlib.sha256(source_key.encode("utf-8")).hexdigest()
+    return f"{digest}.processed.png"
+
+
+def _source_output_namespace(source_path, display_name, mode):
+    normalized_source = os.path.normcase(os.path.realpath(source_path)).replace("\\", "/")
+    digest = hashlib.sha256(
+        f"{normalized_source}\0mode={mode}".encode("utf-8")
+    ).hexdigest()[:12]
+    return f"after_{display_name}_{digest}"
+
+
+def _structured_folder_output_dir(input_dir, output_base_dir, mode):
+    input_folder_name = os.path.basename(os.path.normpath(input_dir)) or "folder"
+    namespace = _source_output_namespace(input_dir, input_folder_name, mode)
+    return os.path.join(output_base_dir, namespace)
+
+
+def _archive_output_dir(archive_path, output_base_dir, mode):
+    archive_name = os.path.splitext(os.path.basename(os.path.normpath(archive_path)))[0]
+    namespace = _source_output_namespace(archive_path, archive_name or "archive", mode)
+    return os.path.join(output_base_dir, namespace)
+
+
+def _path_is_within(path, parent):
+    child_path = os.path.normcase(os.path.realpath(path))
+    parent_path = os.path.normcase(os.path.realpath(parent))
+    try:
+        return os.path.commonpath([child_path, parent_path]) == parent_path
+    except ValueError:
+        return False
+
+
+def _normalize_archive_member_path(member_name, temp_dir):
+    if not isinstance(member_name, str) or not member_name or "\0" in member_name:
+        raise ValueError("压缩包包含无效文件名")
+
+    normalized = member_name.replace("\\", "/")
+    while normalized.endswith("/"):
+        normalized = normalized[:-1]
+    if not normalized:
+        raise ValueError("压缩包包含空路径")
+
+    drive, _ = ntpath.splitdrive(normalized)
+    if drive or normalized.startswith("/") or normalized.startswith("//"):
+        raise ValueError(f"压缩包包含绝对路径: {member_name}")
+
+    parts = normalized.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        raise ValueError(f"压缩包包含不安全路径: {member_name}")
+
+    for part in parts:
+        has_win32_invalid_character = any(
+            ord(character) < 32 or character in '<>:"|?*'
+            for character in part
+        )
+        if has_win32_invalid_character or part.endswith((" ", ".")):
+            raise ValueError(f"压缩包包含 Windows 不安全文件名: {member_name}")
+        reserved_key = part.rstrip(" .").split(".", 1)[0].upper()
+        if reserved_key in WINDOWS_RESERVED_NAMES:
+            raise ValueError(f"压缩包包含 Windows 保留文件名: {member_name}")
+
+    target_path = os.path.join(temp_dir, *parts)
+    if not _path_is_within(target_path, temp_dir):
+        raise ValueError(f"压缩包成员路径越过临时目录: {member_name}")
+
+    return unicodedata.normalize("NFC", "/".join(parts)).casefold()
+
+
+def _validate_archive_members(members, temp_dir):
+    if len(members) > MAX_ARCHIVE_MEMBERS:
+        raise ValueError(f"压缩包文件数量超过限制: {len(members)} > {MAX_ARCHIVE_MEMBERS}")
+
+    if any(is_link for _, _, _, is_link in members):
+        raise ValueError("压缩包包含符号链接、目录联接或特殊文件，已拒绝解压")
+
+    seen_paths = set()
+    for member_name, _, _, _ in members:
+        normalized_key = _normalize_archive_member_path(member_name, temp_dir)
+        if normalized_key in seen_paths:
+            raise ValueError(f"压缩包成员路径规范化后冲突: {member_name}")
+        seen_paths.add(normalized_key)
+
+    total_size = sum(
+        max(0, int(size or 0))
+        for _, is_dir, size, _ in members
+        if not is_dir
+    )
+    if total_size > MAX_ARCHIVE_UNCOMPRESSED_BYTES:
+        raise ValueError(
+            "压缩包解压后总大小超过限制: "
+            f"{total_size} > {MAX_ARCHIVE_UNCOMPRESSED_BYTES} bytes"
+        )
+
+    free_space = shutil.disk_usage(temp_dir).free
+    if total_size + ARCHIVE_FREE_SPACE_RESERVE_BYTES > free_space:
+        raise ValueError(
+            "临时目录剩余空间不足以安全解压压缩包: "
+            f"需要 {total_size + ARCHIVE_FREE_SPACE_RESERVE_BYTES} bytes，"
+            f"可用 {free_space} bytes"
+        )
+
+
+def _validate_extracted_tree(temp_dir):
+    extraction_root = os.path.realpath(temp_dir)
+    for current_root, directories, filenames in os.walk(extraction_root, followlinks=False):
+        for name in directories + filenames:
+            extracted_path = os.path.join(current_root, name)
+            file_attributes = getattr(os.lstat(extracted_path), "st_file_attributes", 0)
+            is_reparse_point = bool(
+                file_attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+            )
+            if os.path.islink(extracted_path) or is_reparse_point:
+                raise ValueError("压缩包解压结果包含链接或目录联接，已拒绝处理")
+            if not _path_is_within(extracted_path, extraction_root):
+                raise ValueError("压缩包解压结果越过临时目录边界，已拒绝处理")
+
+
+def _validate_runtime_smoke_outputs(detection, esrgan_output, bar_output, mosaic_output):
+    import numpy as np
+
+    required_detection_keys = {"rois", "class_ids", "scores", "masks"}
+    if not isinstance(detection, dict) or not required_detection_keys.issubset(detection):
+        raise RuntimeError("Mask R-CNN smoke output is missing required fields")
+
+    rois = np.asarray(detection["rois"])
+    class_ids = np.asarray(detection["class_ids"])
+    scores = np.asarray(detection["scores"])
+    masks = np.asarray(detection["masks"])
+    detection_count = rois.shape[0] if rois.ndim == 2 else -1
+    if (
+        rois.shape != (detection_count, 4)
+        or class_ids.shape != (detection_count,)
+        or scores.shape != (detection_count,)
+        or masks.shape != (512, 512, detection_count)
+    ):
+        raise RuntimeError("Mask R-CNN smoke output has invalid shapes")
+    if not all(np.isfinite(array).all() for array in (rois, class_ids, scores, masks)):
+        raise RuntimeError("Mask R-CNN smoke output contains non-finite values")
+
+    mosaic_indices = np.flatnonzero(class_ids == 2)
+    if mosaic_indices.size == 0:
+        raise RuntimeError("Mask R-CNN smoke output missed the synthetic mosaic")
+    best_mosaic = int(mosaic_indices[np.argmax(scores[mosaic_indices])])
+    if float(scores[best_mosaic]) < 0.85 or not masks[:, :, best_mosaic].any():
+        raise RuntimeError("Mask R-CNN synthetic mosaic detection is too weak")
+
+    expected_roi = np.array([160, 160, 352, 352], dtype=np.float32)
+    actual_roi = rois[best_mosaic].astype(np.float32)
+    intersection_y1 = max(expected_roi[0], actual_roi[0])
+    intersection_x1 = max(expected_roi[1], actual_roi[1])
+    intersection_y2 = min(expected_roi[2], actual_roi[2])
+    intersection_x2 = min(expected_roi[3], actual_roi[3])
+    intersection = max(0.0, intersection_y2 - intersection_y1) * max(
+        0.0, intersection_x2 - intersection_x1
+    )
+    expected_area = (expected_roi[2] - expected_roi[0]) * (
+        expected_roi[3] - expected_roi[1]
+    )
+    actual_area = (actual_roi[2] - actual_roi[0]) * (
+        actual_roi[3] - actual_roi[1]
+    )
+    union = expected_area + actual_area - intersection
+    if union <= 0 or intersection / union < 0.6:
+        raise RuntimeError("Mask R-CNN synthetic mosaic ROI is incorrect")
+
+    expected_mask = np.zeros((512, 512), dtype=np.bool_)
+    expected_mask[160:352, 160:352] = True
+    actual_mask = masks[:, :, best_mosaic].astype(np.bool_)
+    mask_intersection = np.logical_and(actual_mask, expected_mask).sum()
+    mask_union = np.logical_or(actual_mask, expected_mask).sum()
+    mask_iou = mask_intersection / float(mask_union) if mask_union else 0.0
+    if mask_iou < 0.75:
+        raise RuntimeError(
+            f"Mask R-CNN synthetic mosaic mask IoU is too low: {mask_iou:.3f}"
+        )
+
+    for label, value, expected_shape in (
+        ("ESRGAN", esrgan_output, (64, 64, 3)),
+        ("DeepCreamPy bar", bar_output, (256, 256, 3)),
+        ("DeepCreamPy mosaic", mosaic_output, (256, 256, 3)),
+    ):
+        output = np.asarray(value)
+        if output.shape != expected_shape:
+            raise RuntimeError(
+                f"{label} smoke output has invalid shape: {output.shape} != {expected_shape}"
+            )
+        if not np.issubdtype(output.dtype, np.number) or not np.isfinite(output).all():
+            raise RuntimeError(f"{label} smoke output contains invalid values")
+        if float(np.ptp(output.astype(np.float64))) <= 1e-6:
+            raise RuntimeError(f"{label} smoke output is degenerate")
 
 # 关于内容字符串
 ABOUT_CONTENT = """Aletheia Lens
@@ -33,10 +272,18 @@ class DeepCreampyApp:
         self.input_type = "image"  # 默认改为图片模式
         self.preserve_structure = True
         self.model_loaded = False
+        self.runtime_status_signature = None
         
         # 初始化Dear PyGui
         dpg.create_context()
-        dpg.create_viewport(title='Aletheia Lens', small_icon='ico.ico', large_icon='ico.ico', width=600, height=780)
+        icon_path = config.resource_path('ico.ico')
+        dpg.create_viewport(
+            title='Aletheia Lens',
+            small_icon=icon_path,
+            large_icon=icon_path,
+            width=600,
+            height=780,
+        )
         dpg.setup_dearpygui()
         
         # 设置字体
@@ -56,7 +303,7 @@ class DeepCreampyApp:
         with dpg.font_registry():
             # 尝试加载指定字体文件
             font_paths = [
-                "./font/sckkt.ttf",  # 用户指定的字体
+                config.resource_path("font/sckkt.ttf"),
                 "C:/Windows/Fonts/simhei.ttf",  # 黑体
                 "C:/Windows/Fonts/msyh.ttc",    # 微软雅黑
                 "C:/Windows/Fonts/simsun.ttc",  # 宋体
@@ -108,6 +355,8 @@ class DeepCreampyApp:
                 process_image_stream = imported_process_image_stream
                 PROCESSER_AVAILABLE = True
                 self.model_loaded = True
+
+                self.log_runtime_status(force=True)
                 
                 # 更新UI状态
                 self.update_processer_status()
@@ -128,6 +377,54 @@ class DeepCreampyApp:
         thread = threading.Thread(target=import_processer)
         thread.daemon = True
         thread.start()
+
+    def log_runtime_status(self, force=False):
+        """Log provider changes, including execution-time CUDA fallback."""
+        from onnx_runtime import get_runtime_status
+
+        runtime_status = get_runtime_status()
+        session_providers = runtime_status.get("session_providers", {})
+        signature = (
+            runtime_status["device"],
+            tuple(
+                (model_path, tuple(providers))
+                for model_path, providers in sorted(session_providers.items())
+            ),
+        )
+        if not force and signature == getattr(self, "runtime_status_signature", None):
+            return
+        self.runtime_status_signature = signature
+
+        if runtime_status["device"] == "CUDA":
+            self.log_message("ONNX Runtime 已启用 CUDA GPU 加速")
+        elif runtime_status["device"] == "MIXED":
+            intentional_cpu_models = runtime_status.get("intentional_cpu_models", [])
+            unexpected_cpu_models = runtime_status.get("unexpected_cpu_models")
+            if unexpected_cpu_models is None:
+                unexpected_cpu_models = [
+                    model_path
+                    for model_path, providers in session_providers.items()
+                    if "CUDAExecutionProvider" not in providers
+                    and model_path not in intentional_cpu_models
+                ]
+            status_parts = []
+            if intentional_cpu_models:
+                status_parts.append(
+                    "兼容性 CPU: "
+                    + ", ".join(os.path.basename(path) for path in intentional_cpu_models)
+                )
+            if unexpected_cpu_models:
+                status_parts.append(
+                    "CPU 回退: "
+                    + ", ".join(os.path.basename(path) for path in unexpected_cpu_models)
+                )
+            suffix = f"，{'；'.join(status_parts)}" if status_parts else ""
+            self.log_message(f"ONNX Runtime 部分模型使用 CUDA{suffix}")
+        else:
+            self.log_message("ONNX Runtime 当前使用 CPU")
+
+        if runtime_status["guidance"]:
+            self.log_message(runtime_status["guidance"])
     
     def update_processer_status(self):
         """更新processer模块状态显示"""
@@ -149,8 +446,8 @@ class DeepCreampyApp:
     def check_model_files(self):
         """检查模型文件是否存在"""
         # 检查放大模型
-        esrgan_model_path = os.path.join("models", "esrgan", "4x-Fatal-Pixels.pth")
-        if os.path.exists(esrgan_model_path):
+        esrgan_model_files = [config.esrgan_model, config.esrgan_model_data]
+        if all(os.path.exists(path) for path in esrgan_model_files):
             dpg.set_value("放大模型状态", "可用")
             dpg.configure_item("放大模型状态", color=(0, 255, 0, 255))
         else:
@@ -158,8 +455,7 @@ class DeepCreampyApp:
             dpg.configure_item("放大模型状态", color=(255, 0, 0, 255))
         
         # 检查检测模型
-        mrcnn_model_path = os.path.join("models", "mrcnn", "weights.h5")
-        if os.path.exists(mrcnn_model_path):
+        if os.path.exists(config.mrcnn_model):
             dpg.set_value("检测模型状态", "可用")
             dpg.configure_item("检测模型状态", color=(0, 255, 0, 255))
         else:
@@ -184,7 +480,7 @@ class DeepCreampyApp:
                 with dpg.group(horizontal=True):
                     dpg.add_text("输入类型:")
                     dpg.add_radio_button(
-                        items=["单图片模式", "文件夹模式"],
+                        items=["单图片模式", "文件夹模式", "压缩包模式"],
                         tag="输入类型选择",
                         default_value="单图片模式",  # 默认图片模式
                         callback=self.on_input_type_change
@@ -325,7 +621,12 @@ class DeepCreampyApp:
     
     def on_input_type_change(self, sender, app_data):
         """输入类型改变回调"""
-        self.input_type = "image" if app_data == "单图片模式" else "folder"
+        input_type_map = {
+            "单图片模式": "image",
+            "文件夹模式": "folder",
+            "压缩包模式": "archive"
+        }
+        self.input_type = input_type_map.get(app_data, "image")
         
         # 显示/隐藏文件夹选项和统计信息
         if self.input_type == "folder":
@@ -356,6 +657,11 @@ class DeepCreampyApp:
         
         if self.input_type == "folder":
             path = filedialog.askdirectory(title="选择输入文件夹")
+        elif self.input_type == "archive":
+            path = filedialog.askopenfilename(
+                title="选择压缩包",
+                filetypes=[("压缩包文件", "*.zip;*.7z;*.rar")]
+            )
         else:
             path = filedialog.askopenfilename(
                 title="选择输入图片",
@@ -442,6 +748,8 @@ class DeepCreampyApp:
         try:
             if self.input_type == "folder":
                 self.process_folder()
+            elif self.input_type == "archive":
+                self.process_archive()
             else:
                 self.process_single_file()
                 
@@ -458,6 +766,15 @@ class DeepCreampyApp:
         """处理文件夹中的所有图片，可选择是否保留结构"""
         input_dir = self.input_path
         output_base_dir = self.output_path
+
+        effective_output_dir = (
+            _structured_folder_output_dir(input_dir, output_base_dir, self.mode)
+            if self.preserve_structure
+            else output_base_dir
+        )
+        if _path_is_within(effective_output_dir, input_dir):
+            self.log_message("错误：输出目录不能位于输入目录内，请选择输入目录之外的位置")
+            return
         
         image_files = self.get_all_image_files(input_dir)
         self.total_files = len(image_files)
@@ -484,12 +801,138 @@ class DeepCreampyApp:
                     image_files.append((root, file, relative_path))
         return image_files
     
+    def extract_archive(self, archive_path):
+        """解压压缩包到临时目录"""
+        temp_dir = tempfile.mkdtemp()
+        os.makedirs(temp_dir, exist_ok=True)
+        archive_ext = os.path.splitext(archive_path)[1].lower()
+
+        try:
+            if archive_ext == ".zip":
+                with zipfile.ZipFile(archive_path, "r") as archive:
+                    members = archive.infolist()
+                    _validate_archive_members(
+                        [
+                            (
+                                member.filename,
+                                member.is_dir(),
+                                member.file_size,
+                                stat.S_ISLNK(member.external_attr >> 16),
+                            )
+                            for member in members
+                        ],
+                        temp_dir,
+                    )
+                    archive.extractall(temp_dir)
+            elif archive_ext == ".7z":
+                if not _HAS_7Z:
+                    raise ImportError("需要安装 py7zr 库: pip install py7zr")
+                with py7zr.SevenZipFile(archive_path, mode="r") as archive:
+                    members = archive.files
+                    _validate_archive_members(
+                        [
+                            (
+                                member.filename,
+                                member.is_directory,
+                                member.uncompressed,
+                                member.is_symlink or member.is_junction or member.is_socket,
+                            )
+                            for member in members
+                        ],
+                        temp_dir,
+                    )
+                    archive.extractall(path=temp_dir)
+            elif archive_ext == ".rar":
+                if not _HAS_RAR:
+                    raise ImportError("需要安装 rarfile 库: pip install rarfile")
+                bundled_seven_zip = config.resource_path("tools/7zip/7z.exe")
+                if os.path.exists(bundled_seven_zip):
+                    rarfile.SEVENZIP_TOOL = bundled_seven_zip
+                    rarfile.tool_setup(force=True)
+                with rarfile.RarFile(archive_path, "r") as archive:
+                    members = archive.infolist()
+                    _validate_archive_members(
+                        [
+                            (
+                                member.filename,
+                                member.is_dir(),
+                                member.file_size,
+                                member.is_symlink() or bool(getattr(member, "file_redir", None)),
+                            )
+                            for member in members
+                        ],
+                        temp_dir,
+                    )
+                    archive.extractall(temp_dir)
+            else:
+                raise ValueError("不支持的压缩包格式")
+            _validate_extracted_tree(temp_dir)
+        except Exception:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise
+
+        return temp_dir
+
+    def process_archive(self):
+        """处理压缩包中的所有图片并保留内部目录结构"""
+        temp_dir = None
+
+        try:
+            self.log_message("开始解压压缩包")
+            temp_dir = self.extract_archive(self.input_path)
+            self.log_message(f"压缩包已解压到临时目录: {temp_dir}")
+
+            image_files = self.get_all_image_files(temp_dir)
+            self.total_files = len(image_files)
+            self.current_file_index = 0
+
+            if self.total_files == 0:
+                self.log_message("错误：压缩包中未找到任何图片文件")
+                return
+
+            output_dir = _archive_output_dir(self.input_path, self.output_path, self.mode)
+            os.makedirs(output_dir, exist_ok=True)
+            self.log_message("开始处理压缩包，保留内部目录结构")
+            self.log_message(f"输出目录: {output_dir}")
+
+            for i, (root, filename, relative_path) in enumerate(image_files):
+                if not self.processing:
+                    self.log_message("处理已停止")
+                    break
+
+                input_path = os.path.join(root, filename)
+                output_relative_dir = os.path.join(output_dir, relative_path)
+                output_path = os.path.join(output_relative_dir, _png_output_name(filename))
+
+                os.makedirs(output_relative_dir, exist_ok=True)
+
+                try:
+                    with open(input_path, "rb") as f:
+                        image_bytes = f.read()
+
+                    # 使用全局的process_image_stream函数处理图片
+                    result_image = process_image_stream(image_bytes, self.mode)
+                    self.log_runtime_status()
+                    result_image.save(output_path, format="PNG")
+
+                    self.log_message(f"已处理: {os.path.join(relative_path, filename)}")
+
+                except Exception as e:
+                    self.log_message(f"处理文件 {os.path.join(relative_path, filename)} 时出错: {e}")
+                    continue
+
+                # 更新进度
+                self.current_file_index = i + 1
+                progress = (self.current_file_index / self.total_files) * 100
+                self.update_progress(progress, self.current_file_index, self.total_files)
+        finally:
+            if temp_dir:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                self.log_message("已清理临时解压目录")
+
     def process_with_structure(self, input_dir, output_base_dir, image_files):
         """处理文件夹并保留结构"""
-        # 创建顶层输出文件夹（添加after_前缀）
-        input_folder_name = os.path.basename(input_dir)
-        output_top_folder = f"after_{input_folder_name}"
-        output_dir = os.path.join(output_base_dir, output_top_folder)
+        output_dir = _structured_folder_output_dir(input_dir, output_base_dir, self.mode)
         
         self.log_message(f"开始处理文件夹，保留结构模式")
         self.log_message(f"输出目录: {output_dir}")
@@ -505,7 +948,7 @@ class DeepCreampyApp:
             
             # 保持相对路径结构
             output_relative_dir = os.path.join(output_dir, relative_path)
-            output_path = os.path.join(output_relative_dir, filename)  # 保持原文件名
+            output_path = os.path.join(output_relative_dir, _png_output_name(filename))
             
             # 确保输出目录存在
             os.makedirs(output_relative_dir, exist_ok=True)
@@ -517,6 +960,7 @@ class DeepCreampyApp:
                 
                 # 使用全局的process_image_stream函数处理图片
                 result_image = process_image_stream(image_bytes, self.mode)
+                self.log_runtime_status()
                 result_image.save(output_path, format="PNG")
                 
                 self.log_message(f"已处理: {os.path.join(relative_path, filename)}")
@@ -547,15 +991,12 @@ class DeepCreampyApp:
                 
             input_path = os.path.join(root, filename)
             
-            # 生成唯一的输出文件名（避免重名）
-            if relative_path == ".":
-                # 根目录文件
-                output_filename = filename
-            else:
-                # 子目录文件，在文件名前添加路径信息避免冲突
-                safe_path = relative_path.replace(os.path.sep, "_")
-                name, ext = os.path.splitext(filename)
-                output_filename = f"{safe_path}_{name}{ext}"
+            output_filename = _flat_png_output_name(
+                input_dir,
+                relative_path,
+                filename,
+                self.mode,
+            )
             
             output_path = os.path.join(output_dir, output_filename)
             
@@ -566,6 +1007,7 @@ class DeepCreampyApp:
                 
                 # 使用全局的process_image_stream函数处理图片
                 result_image = process_image_stream(image_bytes, self.mode)
+                self.log_runtime_status()
                 result_image.save(output_path, format="PNG")
                 
                 self.log_message(f"已处理: {os.path.join(relative_path, filename)} -> {output_filename}")
@@ -595,6 +1037,7 @@ class DeepCreampyApp:
             
             # 使用全局的process_image_stream函数处理图片
             result_image = process_image_stream(image_bytes, self.mode)
+            self.log_runtime_status()
             result_image.save(output_path, format="PNG")
             
             self.log_message(f"已处理: {filename}")
@@ -628,10 +1071,106 @@ class DeepCreampyApp:
         dpg.start_dearpygui()
         dpg.destroy_context()
 
-def main():
+def run_runtime_smoke_test(require_cuda=False, require_cuda_provider=False):
+    """Run one real inference through every packaged ONNX model."""
+    import numpy as np
+    import detector
+    import esrgan
+    import predict
+    from onnx_runtime import get_runtime_status
+
+    detector_input = np.full((512, 512, 3), 255, dtype=np.uint8)
+    checkerboard = (
+        np.indices((12, 12)).sum(axis=0) % 2 * 128
+    ).astype(np.uint8)
+    mosaic_patch = np.repeat(np.repeat(checkerboard, 16, axis=0), 16, axis=1)
+    detector_input[160:352, 160:352, :] = mosaic_patch[:, :, None]
+    detection = detector.detect_image(detector_input)
+
+    gradient_axis = np.linspace(0, 255, 16, dtype=np.uint8)
+    gradient_x, gradient_y = np.meshgrid(gradient_axis, gradient_axis, indexing="xy")
+    esrgan_input = np.stack(
+        [gradient_x, gradient_y, np.full((16, 16), 128, dtype=np.uint8)],
+        axis=-1,
+    )
+    esrgan_output = esrgan._run_esrgan_onnx(esrgan_input)
+    censored = np.linspace(
+        -1.0,
+        1.0,
+        256 * 256 * 3,
+        dtype=np.float32,
+    ).reshape((256, 256, 3))
+    mask = np.zeros_like(censored)
+    mask[64:192, 64:192, :] = 1.0
+    bar_output = predict.predict(censored, mask, False)
+    mosaic_output = predict.predict(censored, mask, True)
+    _validate_runtime_smoke_outputs(
+        detection,
+        esrgan_output,
+        bar_output,
+        mosaic_output,
+    )
+
+    runtime_status = get_runtime_status()
+    if require_cuda_provider and not runtime_status["cuda_available"]:
+        raise RuntimeError(
+            "CUDA smoke test required CUDAExecutionProvider to be available: "
+            f"{runtime_status.get('available_providers', [])}"
+        )
+    if require_cuda:
+        session_providers = runtime_status.get("session_providers", {})
+        required_cuda_models = [config.mrcnn_model, config.esrgan_model]
+        missing_cuda_models = [
+            os.path.basename(model_path)
+            for model_path in required_cuda_models
+            if "CUDAExecutionProvider" not in session_providers.get(str(model_path), [])
+        ]
+    else:
+        missing_cuda_models = []
+    if missing_cuda_models:
+        raise RuntimeError(
+            "CUDA smoke test required all CUDA-compatible models on CUDA; missing: "
+            f"{', '.join(missing_cuda_models)}. "
+            f"Sessions: {runtime_status.get('session_providers', {})}"
+        )
+    if sys.stdout is not None:
+        print(f"Runtime smoke test passed: {runtime_status}")
+    return runtime_status
+
+
+def _write_runtime_smoke_report(contents):
+    report_path = os.environ.get("ALETHEIA_SMOKE_REPORT")
+    if not report_path:
+        return
+    report_dir = os.path.dirname(os.path.abspath(report_path))
+    os.makedirs(report_dir, exist_ok=True)
+    with open(report_path, "w", encoding="utf-8") as report:
+        report.write(contents)
+
+
+def main(argv=None):
     """主函数"""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if "--runtime-smoke-test" in argv:
+        try:
+            runtime_status = run_runtime_smoke_test(
+                require_cuda="--require-cuda" in argv,
+                require_cuda_provider="--require-cuda-provider" in argv,
+            )
+        except Exception as exc:
+            import traceback
+
+            report = f"FAIL: {exc}\n{traceback.format_exc()}"
+            _write_runtime_smoke_report(report)
+            if sys.stderr is not None:
+                print(f"Runtime smoke test failed: {exc}", file=sys.stderr)
+            return 1
+        _write_runtime_smoke_report(f"PASS\n{runtime_status!r}\n")
+        return 0
+
     app = DeepCreampyApp()
     app.run()
+    return 0
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
