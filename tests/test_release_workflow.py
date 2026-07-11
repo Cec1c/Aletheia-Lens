@@ -19,6 +19,12 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("requirements-gpu.txt", workflow)
         self.assertIn("requirements.txt", workflow)
 
+    def test_workflow_forces_utf8_for_chinese_test_output(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn('PYTHONUTF8: "1"', workflow)
+        self.assertIn('PYTHONIOENCODING: "utf-8"', workflow)
+
     def test_workflow_downloads_only_runtime_onnx_assets(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
 

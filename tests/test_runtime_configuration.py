@@ -171,6 +171,8 @@ class RuntimeConfigurationTests(unittest.TestCase):
             cublas_bin = site_root / "nvidia" / "cublas" / "bin"
             cudnn_bin.mkdir(parents=True)
             cublas_bin.mkdir(parents=True)
+            expected_cudnn_bin = cudnn_bin.resolve()
+            expected_cublas_bin = cublas_bin.resolve()
 
             events = []
             handles = []
@@ -196,8 +198,8 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertEqual(
             events,
             [
-                ("add", cublas_bin),
-                ("add", cudnn_bin),
+                ("add", expected_cublas_bin),
+                ("add", expected_cudnn_bin),
                 ("preload", {}),
             ],
         )

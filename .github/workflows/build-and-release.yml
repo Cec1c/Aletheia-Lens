@@ -36,6 +36,8 @@ jobs:
       RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
       SOURCE_REF_NAME: ${{ github.ref_name }}
       CURRENT_SHA: ${{ github.sha }}
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
 
     steps:
       - name: Checkout
