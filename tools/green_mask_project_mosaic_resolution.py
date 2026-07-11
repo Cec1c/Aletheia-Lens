@@ -2,8 +2,17 @@ import cv2
 import numpy as np
 import os
 import glob
-from scipy.signal import argrelextrema
 from PIL import Image
+
+
+def _local_minima_indices(values):
+    """Return strict local minima using SciPy argrelextrema's default order=1 semantics."""
+    values = np.asarray(values)
+    if values.size < 3:
+        return np.empty(0, dtype=np.int64)
+    return np.flatnonzero(
+        (values[1:-1] < values[:-2]) & (values[1:-1] < values[2:])
+    ) + 1
 
 # Conversion from file based script to individual image usage
 def get_mosaic_res(root_img=None):
@@ -67,7 +76,7 @@ def get_mosaic_res(root_img=None):
 
     resolutions.append(0)
 #    print(resolutions)    #DEBUG Resolutions array
-    extremaMIN = argrelextrema(np.array(resolutions), np.less, axis=0)[0]
+    extremaMIN = _local_minima_indices(resolutions)
     extremaMIN = np.insert(extremaMIN,0,LowRange)
     extremaMIN = np.append(extremaMIN,HighRange+2)
 

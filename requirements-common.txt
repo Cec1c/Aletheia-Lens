@@ -1,0 +1,6 @@
+dearpygui==2.1.1
+numpy==1.24.3
+opencv-python==4.5.5.64
+Pillow==12.0.0
+py7zr==0.21.0
+rarfile==4.2
