@@ -12,6 +12,7 @@ import shutil
 from tkinter import filedialog
 import tkinter as tk
 import config
+from image_formats import IMAGE_FILE_DIALOG_PATTERN, is_supported_image
 # py7zr 和 rarfile 仅在压缩包模式时需要，设为可选导入
 try:
     import py7zr
@@ -273,6 +274,7 @@ class DeepCreampyApp:
         self.preserve_structure = True
         self.model_loaded = False
         self.runtime_status_signature = None
+        self.path_font = None
         
         # 初始化Dear PyGui
         dpg.create_context()
@@ -299,8 +301,32 @@ class DeepCreampyApp:
         self.start_async_import()
         
     def setup_font(self):
-        """设置中文字体"""
+        """设置默认中文字体和用于路径、日志的日文扩展字体。"""
         with dpg.font_registry():
+            path_font_paths = [
+                config.resource_path("font/NotoSansCJKjp-Regular.otf"),
+                "C:/Windows/Fonts/msyh.ttc",
+                "C:/Windows/Fonts/simhei.ttf",
+                "C:/Windows/Fonts/YuGothM.ttc",
+                "C:/Windows/Fonts/msgothic.ttc",
+                "/System/Library/Fonts/PingFang.ttc",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            ]
+
+            for font_path in path_font_paths:
+                if not os.path.exists(font_path):
+                    continue
+                try:
+                    with dpg.font(font_path, 18) as path_font:
+                        dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
+                        dpg.add_font_range_hint(dpg.mvFontRangeHint_Chinese_Full)
+                        dpg.add_font_range_hint(dpg.mvFontRangeHint_Japanese)
+                    self.path_font = path_font
+                    print(f"成功加载路径扩展字体: {font_path}")
+                    break
+                except Exception as e:
+                    print(f"加载路径扩展字体失败 {font_path}: {e}")
+
             # 尝试加载指定字体文件
             font_paths = [
                 config.resource_path("font/sckkt.ttf"),
@@ -330,6 +356,14 @@ class DeepCreampyApp:
             
             if not font_loaded:
                 print("使用默认字体")
+
+    def bind_path_font(self):
+        """将覆盖日文字符的字体绑定到可能显示文件路径的控件。"""
+        if self.path_font is None:
+            return
+
+        for item in ("输入路径", "输出路径", "日志输出"):
+            dpg.bind_item_font(item, self.path_font)
     
     def setup_theme(self):
         """设置自定义主题"""
@@ -618,6 +652,8 @@ class DeepCreampyApp:
                     height=120,
                     width=-1
                 )
+
+            self.bind_path_font()
     
     def on_input_type_change(self, sender, app_data):
         """输入类型改变回调"""
@@ -665,7 +701,7 @@ class DeepCreampyApp:
         else:
             path = filedialog.askopenfilename(
                 title="选择输入图片",
-                filetypes=[("图片文件", "*.png;*.jpg;*.jpeg;*.bmp;*.tiff")]
+                filetypes=[("图片文件", IMAGE_FILE_DIALOG_PATTERN)]
             )
         
         if path:
@@ -699,7 +735,7 @@ class DeepCreampyApp:
         count = 0
         for root, dirs, files in os.walk(folder_path):
             for file in files:
-                if file.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff')):
+                if is_supported_image(file):
                     count += 1
         return count
     
@@ -796,7 +832,7 @@ class DeepCreampyApp:
         image_files = []
         for root, dirs, files in os.walk(folder_path):
             for file in files:
-                if file.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff')):
+                if is_supported_image(file):
                     relative_path = os.path.relpath(root, folder_path)
                     image_files.append((root, file, relative_path))
         return image_files

@@ -5,6 +5,7 @@ from PIL import Image
 from detector import detector, apply_cover
 from decensor import decensor
 from esrgan import esrgan
+from image_formats import SUPPORTED_IMAGE_EXTENSIONS
 
 
 def process_bar_auto(image_bytes: bytes) -> Image.Image:
@@ -101,7 +102,7 @@ def save_image_to_bytes(image: Image.Image) -> bytes:
 
 def get_supported_formats():
     """返回支持的图片格式"""
-    return ['.png', '.jpg', '.jpeg', '.bmp', '.tiff']
+    return list(SUPPORTED_IMAGE_EXTENSIONS)
 
 def main():
     """

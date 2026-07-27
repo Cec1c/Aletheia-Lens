@@ -20,9 +20,14 @@ def get_model_datas():
                 dest_dir = str(f.parent)
                 datas.append((str(f), dest_dir))
 
-    # 字体文件
-    if Path('font/sckkt.ttf').exists():
-        datas.append(('font/sckkt.ttf', 'font'))
+    # 字体文件及第三方字体许可证
+    for font_asset in (
+        'font/sckkt.ttf',
+        'font/NotoSansCJKjp-Regular.otf',
+        'font/NotoSansCJK-LICENSE.txt',
+    ):
+        if Path(font_asset).exists():
+            datas.append((font_asset, 'font'))
     if Path('ico.ico').exists():
         datas.append(('ico.ico', '.'))
 
