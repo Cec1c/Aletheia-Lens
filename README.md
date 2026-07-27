@@ -77,7 +77,7 @@ DeepCreamPy 的 `bar.onnx` 和 `mosaic.onnx` 已包含在仓库中。其余模�
 
 **另外这个工具只支持二次元图片**
 
-先选择输入类型：单图片、文件夹或压缩包模式。图片支持 PNG、JPEG、BMP、TIFF 和静态 WebP；压缩包模式支持 ZIP、7Z 和 RAR，处理后保留包内目录结构；保留结构的文件夹和压缩包会按“源完整路径 + 处理模式”创建独立的 `after_<名称>_<短哈希>` 目录，结果文件在完整原文件名后追加 `.processed.png`。平铺模式使用输入根、源相对路径和处理模式生成稳定 SHA-256 名称，避免目录压平或跨任务复用输出目录时同名覆盖。文件夹输出目录必须位于输入目录之外。
+先选择输入类型：单图片、文件夹或压缩包模式。图片支持 PNG、JPEG、BMP、TIFF 和静态 WebP；压缩包模式支持 ZIP、7Z 和 RAR，处理后保留包内目录结构；保留结构的文件夹和压缩包会按“源完整路径 + 处理配置”创建独立的 `after_<名称>_<短哈希>` 目录，结果文件在完整原文件名后追加 `.processed.png`。平铺模式使用输入根、源相对路径和处理配置生成稳定 SHA-256 名称，避免目录压平或跨任务复用输出目录时同名覆盖。处理配置包含修复模式以及启用时的去网点强度。文件夹输出目录必须位于输入目录之外。
 
 为避免压缩炸弹或链接越界，单个压缩包最多包含 20,000 个成员、解压后总大小最多 20 GiB。解压前会拒绝绝对路径、父目录跳转、Windows 设备名、规范化后冲突的目标，以及符号链接、目录联接和 RAR 重定向，并检查临时目录剩余空间。
 
@@ -95,6 +95,8 @@ DeepCreamPy 的 `bar.onnx` 和 `mosaic.onnx` 已包含在仓库中。其余模�
 
 模式III不是很建议使用，出来的效果有时很诡异
 
+如果原图来自扫描漫画并带有密集印刷点阵，可以勾选“处理前去除漫画网点”。该预处理默认关闭，可选轻度、中度、强度三级，默认中度；它会在模式 I/II/III 之前抑制颜色通道中的高频网点，并原样保留 Alpha 透明通道。强度越高，网点通常越少，但线条、纹理等细节损失风险也越高；没有明显印刷点阵的图片建议保持关闭。启用后，单图文件名会带 `.descreen-<强度>`，批量任务的输出哈希也会区分强度，避免覆盖其他处理结果。
+
 ![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E5%A4%84%E7%90%86%E6%A8%A1%E5%BC%8F.png)
 
 接着一切就绪，点击开始处理即可
@@ -108,6 +110,8 @@ DeepCreamPy 的 `bar.onnx` 和 `mosaic.onnx` 已包含在仓库中。其余模�
 本工具基于<a href="https://github.com/cookieY/DeepCreamPy">deepcreampy</a> 和 <a href="https://github.com/natethegreate/hent-AI">hent-AI</a> 
 
 还使用了<a href="https://openmodeldb.info/models/4x-Fatal-Pixels">4x-Fatal-Pixels</a> 的 ONNX 转换模型。
+
+去网点预处理的处理思路参考了 <a href="https://github.com/natethegreate/Screentone-Remover">Screentone-Remover</a>，本项目中的滤镜代码为独立实现。
 
 前者提供对涂抹部分去码，中者用于识别并涂抹码区，后者用于放大功能
 
