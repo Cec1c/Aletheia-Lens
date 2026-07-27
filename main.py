@@ -44,6 +44,11 @@ WINDOWS_RESERVED_NAMES = {
     *(f"COM{index}" for index in range(1, 10)),
     *(f"LPT{index}" for index in range(1, 10)),
 }
+SCREENTONE_LEVEL_LABELS = {
+    "轻度": 1,
+    "中度": 2,
+    "强度": 3,
+}
 
 
 def _png_output_name(filename):
@@ -51,33 +56,68 @@ def _png_output_name(filename):
     return f"{filename}.processed.png"
 
 
-def _flat_png_output_name(input_dir, relative_path, filename, mode):
+def _processing_profile(mode, screentone_level=0):
+    profile = f"mode={mode}"
+    if screentone_level:
+        profile = f"{profile}\0screentone={screentone_level}"
+    return profile
+
+
+def _flat_png_output_name(
+    input_dir,
+    relative_path,
+    filename,
+    mode,
+    screentone_level=0,
+):
     """Return a stable PNG name for a flattened source path."""
     normalized_root = os.path.normcase(os.path.realpath(input_dir)).replace("\\", "/")
     normalized_dir = "" if relative_path == "." else relative_path.replace("\\", "/").strip("/")
     source_path = f"{normalized_dir}/{filename}" if normalized_dir else filename
-    source_key = f"{normalized_root}\0{source_path}\0mode={mode}"
+    profile = _processing_profile(mode, screentone_level)
+    source_key = f"{normalized_root}\0{source_path}\0{profile}"
     digest = hashlib.sha256(source_key.encode("utf-8")).hexdigest()
     return f"{digest}.processed.png"
 
 
-def _source_output_namespace(source_path, display_name, mode):
+def _source_output_namespace(source_path, display_name, mode, screentone_level=0):
     normalized_source = os.path.normcase(os.path.realpath(source_path)).replace("\\", "/")
+    profile = _processing_profile(mode, screentone_level)
     digest = hashlib.sha256(
-        f"{normalized_source}\0mode={mode}".encode("utf-8")
+        f"{normalized_source}\0{profile}".encode("utf-8")
     ).hexdigest()[:12]
     return f"after_{display_name}_{digest}"
 
 
-def _structured_folder_output_dir(input_dir, output_base_dir, mode):
+def _structured_folder_output_dir(
+    input_dir,
+    output_base_dir,
+    mode,
+    screentone_level=0,
+):
     input_folder_name = os.path.basename(os.path.normpath(input_dir)) or "folder"
-    namespace = _source_output_namespace(input_dir, input_folder_name, mode)
+    namespace = _source_output_namespace(
+        input_dir,
+        input_folder_name,
+        mode,
+        screentone_level,
+    )
     return os.path.join(output_base_dir, namespace)
 
 
-def _archive_output_dir(archive_path, output_base_dir, mode):
+def _archive_output_dir(
+    archive_path,
+    output_base_dir,
+    mode,
+    screentone_level=0,
+):
     archive_name = os.path.splitext(os.path.basename(os.path.normpath(archive_path)))[0]
-    namespace = _source_output_namespace(archive_path, archive_name or "archive", mode)
+    namespace = _source_output_namespace(
+        archive_path,
+        archive_name or "archive",
+        mode,
+        screentone_level,
+    )
     return os.path.join(output_base_dir, namespace)
 
 
@@ -275,6 +315,8 @@ class DeepCreampyApp:
         self.model_loaded = False
         self.runtime_status_signature = None
         self.path_font = None
+        self.screentone_enabled = False
+        self.screentone_level = 2
         
         # 初始化Dear PyGui
         dpg.create_context()
@@ -562,6 +604,26 @@ class DeepCreampyApp:
                     callback=self.on_mode_change
                 )
                 dpg.add_text("模式III会毁坏透明背景，游戏素材等含透明图层的慎用")
+                dpg.add_separator()
+                with dpg.group(horizontal=True):
+                    dpg.add_checkbox(
+                        label="处理前去除漫画网点",
+                        tag="去网点复选框",
+                        default_value=False,
+                        callback=self.on_screentone_enabled_change,
+                    )
+                    dpg.add_combo(
+                        items=list(SCREENTONE_LEVEL_LABELS),
+                        tag="去网点强度",
+                        default_value="中度",
+                        width=90,
+                        enabled=False,
+                        callback=self.on_screentone_level_change,
+                    )
+                dpg.add_text(
+                    "仅用于带印刷点阵的漫画；强度越高，网点越少，但细节损失越明显",
+                    color=(150, 150, 150, 255),
+                )
             
             # 3. 文件夹选项（仅文件夹模式显示）
             with dpg.collapsing_header(label="在这里调整文件夹选项", tag="文件夹选项区域", show=False):
@@ -681,6 +743,29 @@ class DeepCreampyApp:
             "模式III: 马赛克修复并放大": 3
         }
         self.mode = mode_map.get(app_data, 1)
+
+    def on_screentone_enabled_change(self, sender, app_data):
+        """启用或关闭去网点预处理。"""
+        self.screentone_enabled = bool(app_data)
+        dpg.configure_item("去网点强度", enabled=self.screentone_enabled)
+
+    def on_screentone_level_change(self, sender, app_data):
+        """更新去网点预处理强度。"""
+        self.screentone_level = SCREENTONE_LEVEL_LABELS.get(app_data, 2)
+
+    def active_screentone_level(self):
+        """Return the active level, keeping legacy/test instances disabled."""
+        if not getattr(self, "screentone_enabled", False):
+            return 0
+        return getattr(self, "screentone_level", 2)
+
+    def process_image_bytes(self, image_bytes):
+        """Run the selected repair mode with the optional preprocessing."""
+        return process_image_stream(
+            image_bytes,
+            self.mode,
+            screentone_level=self.active_screentone_level(),
+        )
     
     def on_preserve_structure_change(self, sender, app_data):
         """保留结构复选框回调"""
@@ -782,6 +867,9 @@ class DeepCreampyApp:
     def process_files(self):
         """处理文件的主要逻辑"""
         try:
+            screentone_level = self.active_screentone_level()
+            if screentone_level:
+                self.log_message(f"已启用去网点预处理，强度: {screentone_level}")
             if self.input_type == "folder":
                 self.process_folder()
             elif self.input_type == "archive":
@@ -804,7 +892,12 @@ class DeepCreampyApp:
         output_base_dir = self.output_path
 
         effective_output_dir = (
-            _structured_folder_output_dir(input_dir, output_base_dir, self.mode)
+            _structured_folder_output_dir(
+                input_dir,
+                output_base_dir,
+                self.mode,
+                self.active_screentone_level(),
+            )
             if self.preserve_structure
             else output_base_dir
         )
@@ -926,7 +1019,12 @@ class DeepCreampyApp:
                 self.log_message("错误：压缩包中未找到任何图片文件")
                 return
 
-            output_dir = _archive_output_dir(self.input_path, self.output_path, self.mode)
+            output_dir = _archive_output_dir(
+                self.input_path,
+                self.output_path,
+                self.mode,
+                self.active_screentone_level(),
+            )
             os.makedirs(output_dir, exist_ok=True)
             self.log_message("开始处理压缩包，保留内部目录结构")
             self.log_message(f"输出目录: {output_dir}")
@@ -947,7 +1045,7 @@ class DeepCreampyApp:
                         image_bytes = f.read()
 
                     # 使用全局的process_image_stream函数处理图片
-                    result_image = process_image_stream(image_bytes, self.mode)
+                    result_image = self.process_image_bytes(image_bytes)
                     self.log_runtime_status()
                     result_image.save(output_path, format="PNG")
 
@@ -968,7 +1066,12 @@ class DeepCreampyApp:
 
     def process_with_structure(self, input_dir, output_base_dir, image_files):
         """处理文件夹并保留结构"""
-        output_dir = _structured_folder_output_dir(input_dir, output_base_dir, self.mode)
+        output_dir = _structured_folder_output_dir(
+            input_dir,
+            output_base_dir,
+            self.mode,
+            self.active_screentone_level(),
+        )
         
         self.log_message(f"开始处理文件夹，保留结构模式")
         self.log_message(f"输出目录: {output_dir}")
@@ -995,7 +1098,7 @@ class DeepCreampyApp:
                     image_bytes = f.read()
                 
                 # 使用全局的process_image_stream函数处理图片
-                result_image = process_image_stream(image_bytes, self.mode)
+                result_image = self.process_image_bytes(image_bytes)
                 self.log_runtime_status()
                 result_image.save(output_path, format="PNG")
                 
@@ -1032,6 +1135,7 @@ class DeepCreampyApp:
                 relative_path,
                 filename,
                 self.mode,
+                self.active_screentone_level(),
             )
             
             output_path = os.path.join(output_dir, output_filename)
@@ -1042,7 +1146,7 @@ class DeepCreampyApp:
                     image_bytes = f.read()
                 
                 # 使用全局的process_image_stream函数处理图片
-                result_image = process_image_stream(image_bytes, self.mode)
+                result_image = self.process_image_bytes(image_bytes)
                 self.log_runtime_status()
                 result_image.save(output_path, format="PNG")
                 
@@ -1065,14 +1169,16 @@ class DeepCreampyApp:
         # 生成输出文件名
         filename = os.path.basename(input_path)
         name, ext = os.path.splitext(filename)
-        output_path = os.path.join(output_dir, f"processed_{name}.png")
+        screentone_level = self.active_screentone_level()
+        profile_suffix = f".descreen-{screentone_level}" if screentone_level else ""
+        output_path = os.path.join(output_dir, f"processed_{name}{profile_suffix}.png")
         
         try:
             with open(input_path, "rb") as f:
                 image_bytes = f.read()
             
             # 使用全局的process_image_stream函数处理图片
-            result_image = process_image_stream(image_bytes, self.mode)
+            result_image = self.process_image_bytes(image_bytes)
             self.log_runtime_status()
             result_image.save(output_path, format="PNG")
             

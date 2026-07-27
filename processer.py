@@ -6,6 +6,7 @@ from detector import detector, apply_cover
 from decensor import decensor
 from esrgan import esrgan
 from image_formats import SUPPORTED_IMAGE_EXTENSIONS
+from screentone import remove_screentones
 
 
 def process_bar_auto(image_bytes: bytes) -> Image.Image:
@@ -73,13 +74,31 @@ def process_mosaic_esrgan_auto(image_bytes: bytes) -> Image.Image:
         raise
 
 
-def process_image_stream(image_bytes: bytes, mode: int) -> Image.Image:
+def apply_screentone_preprocessing(image_bytes: bytes, level: int) -> bytes:
+    """Apply the optional screentone filter and return PNG bytes."""
+    with Image.open(io.BytesIO(image_bytes)) as image:
+        filtered = remove_screentones(image, level)
+
+    output = io.BytesIO()
+    filtered.save(output, format="PNG")
+    return output.getvalue()
+
+
+def process_image_stream(
+    image_bytes: bytes,
+    mode: int,
+    screentone_level: int = 0,
+) -> Image.Image:
     """
     作为组件被调用时的处理函数
     :param image_bytes: 输入图像的字节数据
     :param mode: 处理模式 (1, 2, 3)
+    :param screentone_level: 去网点强度 (0=关闭, 1=轻度, 2=中度, 3=强度)
     :return: 修复后的PIL图像对象
     """
+    if screentone_level:
+        image_bytes = apply_screentone_preprocessing(image_bytes, screentone_level)
+
     if mode == 1:
         return process_bar_auto(image_bytes)
     elif mode == 2:
@@ -117,6 +136,13 @@ def main():
         choices=["1", "2", "3"], 
         help="处理模式: 1=色条自动修复, 2=马赛克自动修复, 3=马赛克自动修复并放大"
     )
+    parser.add_argument(
+        "--screentone-level",
+        type=int,
+        choices=[0, 1, 2, 3],
+        default=0,
+        help="去网点预处理强度: 0=关闭, 1=轻度, 2=中度, 3=强度",
+    )
     
     args = parser.parse_args()
     
@@ -131,7 +157,11 @@ def main():
     # 根据模式处理图像
     try:
         mode_int = int(args.mode)
-        result_image = process_image_stream(image_bytes, mode_int)
+        result_image = process_image_stream(
+            image_bytes,
+            mode_int,
+            screentone_level=args.screentone_level,
+        )
     except Exception as e:
         print(f"错误：处理图像时发生异常 - {e}")
         sys.exit(1)

@@ -396,7 +396,13 @@ class ArchiveSupportTests(unittest.TestCase):
     def test_flat_output_names_include_input_root_and_processing_mode(self):
         self.assertEqual(
             list(inspect.signature(main._flat_png_output_name).parameters),
-            ["input_dir", "relative_path", "filename", "mode"],
+            [
+                "input_dir",
+                "relative_path",
+                "filename",
+                "mode",
+                "screentone_level",
+            ],
         )
 
         with tempfile.TemporaryDirectory() as root:
