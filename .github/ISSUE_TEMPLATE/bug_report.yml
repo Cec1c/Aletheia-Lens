@@ -1,0 +1,61 @@
+name: Bug report / 错误报告
+description: Report a reproducible problem / 报告可复现的问题
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Please search existing issues before submitting.
+        感谢反馈。提交前请先搜索现有 Issue，避免重复。
+  - type: textarea
+    id: description
+    attributes:
+      label: Description / 问题描述
+      description: What happened? / 发生了什么？
+      placeholder: Describe the problem clearly and concisely.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / 复现步骤
+      placeholder: |
+        1. Go to ...
+        2. Run ...
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior / 预期行为
+      description: What did you expect to happen? / 你期望发生什么？
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit / 版本或提交
+      placeholder: e.g. v1.2.3 or commit SHA
+  - type: input
+    id: environment
+    attributes:
+      label: Environment / 运行环境
+      placeholder: e.g. Windows 11, macOS 15, Ubuntu 24.04
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, screenshots, or additional context / 日志、截图或补充信息
+      description: Remove secrets and personal data before posting. / 发布前请移除密钥和个人信息。
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist / 提交检查
+      options:
+        - label: I searched existing issues and did not find a duplicate. / 我已搜索现有 Issue，未发现重复问题。
+          required: true
+        - label: I removed secrets and personal data from the report. / 我已从报告中移除密钥和个人信息。
+          required: true
