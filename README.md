@@ -4,6 +4,8 @@
 
 # Aletheia Lens
 
+[简体中文](README.md) ｜ [English](README.en.md)
+
 [![Release](https://img.shields.io/github/v/release/Cec1c/Aletheia-Lens?style=flat-square)](https://github.com/Cec1c/Aletheia-Lens/releases/latest) [![License](https://img.shields.io/github/license/Cec1c/Aletheia-Lens?style=flat-square&color=blue)](LICENSE) [![Downloads](https://img.shields.io/github/downloads/Cec1c/Aletheia-Lens/total?style=flat-square)](https://github.com/Cec1c/Aletheia-Lens/releases) [![Stars](https://img.shields.io/github/stars/Cec1c/Aletheia-Lens?style=flat-square)](https://github.com/Cec1c/Aletheia-Lens/stargazers)
 
 基于 DeepCreamPy、hent-AI 和 ONNX Runtime 的本地图像修复工具。

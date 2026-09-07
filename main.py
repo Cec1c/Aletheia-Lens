@@ -317,7 +317,7 @@ def _validate_runtime_smoke_outputs(detection, esrgan_output, bar_output, mosaic
 # 关于内容字符串
 ABOUT_CONTENT = """Aletheia Lens
 阿勒西娅之镜
-版本: 1.2.0
+版本: 1.3.0
 
 我们拜请拾滩鸦，明晓失物之神
 所求之物，诉说着生育的奥秘，是为杯
