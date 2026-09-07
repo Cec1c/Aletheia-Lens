@@ -1,132 +1,208 @@
-# Aletheia-Lens
-一个基于deepcreampy的自动涂抹识别去码工具，带有GUI界面和打包版本，极易使用
-## 适用场景
+<div align="center">
 
-- 我有一批带黑条的图片，只有少部分可猜测细节被遮挡，我希望能批量修复他们并且不影响原有命名顺序
-- 我解包了一个游戏，找到了其带码的素材，我想批量转换他们但是素材太多了，分不清其文件结构，而且不想破坏原有素材的图层透明性(模式II不会，模式III会破坏)
-- 等等场景，作者做来主要是针对游戏解包素材再修复，如有需求可以交个issue我试试
-- 仅适用于二次元图片
-# 简介
-一个使用了deepcreampy和hent-AI的来实现自动涂抹和自动去码的AI工具 
+<img src="readmeimg/logo.png" alt="Aletheia Lens 紫色透镜图标" width="128" height="128">
 
-[前往 Release 页面下载](https://github.com/Cec1c/Aletheia-Lens/releases/latest)
+# Aletheia Lens
 
-~~部署API?~~
+[![Release](https://img.shields.io/github/v/release/Cec1c/Aletheia-Lens?style=flat-square)](https://github.com/Cec1c/Aletheia-Lens/releases/latest) [![License](https://img.shields.io/github/license/Cec1c/Aletheia-Lens?style=flat-square&color=blue)](LICENSE) [![Downloads](https://img.shields.io/github/downloads/Cec1c/Aletheia-Lens/total?style=flat-square)](https://github.com/Cec1c/Aletheia-Lens/releases) [![Stars](https://img.shields.io/github/stars/Cec1c/Aletheia-Lens?style=flat-square)](https://github.com/Cec1c/Aletheia-Lens/stargazers)
 
-~~安装Python环境？~~
+基于 DeepCreamPy、hent-AI 和 ONNX Runtime 的本地图像修复工具。
 
-现在一次性帮你打包好了，当然，如果你不打算下载我打包的release版本使用的话，你仍然需要按照下文的办法手动安装模型
-# 工具GUI
-![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E5%B7%A5%E5%85%B7GUI.png)
-# 安装办法
-### 即开即用版本
+自动识别遮挡区域，处理单张图片、整个文件夹或压缩包；提供 Windows 图形界面与解压即用的发行包。
 
-每个新版本提供两个压缩包：
+[下载最新版](https://github.com/Cec1c/Aletheia-Lens/releases/latest) ｜ [快速开始](#快速开始) ｜ [使用说明](#使用说明) ｜ [实验性功能](#实验性功能) ｜ [问题反馈](#问题反馈)
 
-- `*_cpu.7z`：体积较小，使用 CPU。
-- `*_cuda12.7z`：NVIDIA GPU 版，内置 CUDA 12 / cuDNN 9 运行库。
+</div>
 
-下载后解压并运行 `Aletheia-Lens.exe`。程序日志会明确显示 ONNX 会话已启用 CUDA、混合状态还是纯 CPU。CUDA 包会让 Mask R-CNN 检测与 ESRGAN 放大优先使用 GPU；DeepCreamPy 的 `bar.onnx` / `mosaic.onnx` 在 CUDA12/cuDNN9 下会产生非有限值，因此明确固定到 CPU，日志会说明这是兼容性策略而不是静默回退。
+> [!NOTE]
+> 仅适用于二次元图片。本文描述当前仓库源码，下载版本支持的功能请以对应 Release 的说明为准。
 
-程序使用pyinstaller打包，若需要自行打包可以下载源码看下边python安装方法
+## 可以用来做什么？
 
-（我去pyinstaller你这打包下来是真夸张啊）
-### 已有python不想安装那么多东西，你这也太大了
+- **处理一批带黑条的图片**：自动识别并修复遮挡区域，减少逐张处理的操作。
+- **整理游戏解包素材**：遍历多层文件夹或压缩包，在独立输出目录中保留素材结构。
+- **处理扫描漫画**：按需启用去网点预处理，再进行修复。
 
-这个项目构建在**Python 3.10.11**下，尚不清楚其他版本是否会出现问题，如遇兼容性问题可告知我我在这留下信息
+## 界面预览
 
-CPU 环境：
+<table>
+  <tr>
+    <td align="center" valign="top">
+      <strong>主界面与实验性功能入口</strong><br>
+      <img src="readmeimg/main-window.png" alt="Aletheia Lens 主界面，包含输入路径、修复模式与实验性功能警告" width="380">
+    </td>
+    <td align="center" valign="top">
+      <strong>手动标注编辑器（实验性）</strong><br>
+      <img src="readmeimg/manual-editor.png" alt="使用合成测试图演示画笔选区、缩放、撤销和手动修复" width="480"><br>
+      <strong>按选区修复后的结果</strong><br>
+      <img src="readmeimg/manual-result.png" alt="合成测试图仅修复已标注的上方黑条，保留下方未标注黑条和原有绿色区域" width="480">
+    </td>
+  </tr>
+</table>
 
-```
+## 快速开始
+
+### 下载即用
+
+在 [Releases](https://github.com/Cec1c/Aletheia-Lens/releases/latest) 中选择合适的压缩包：
+
+| 发行包 | 适合的设备 | 说明 |
+| --- | --- | --- |
+| `*_cpu.7z` | 没有合适的 NVIDIA 显卡，或优先选择较小的下载包 | 使用 CPU 推理 |
+| `*_cuda12.7z` | 支持 CUDA 12 的 NVIDIA 显卡 | 内置 CUDA 12 / cuDNN 9 运行库，检测与放大优先使用 GPU |
+
+1. 解压压缩包，运行 `Aletheia-Lens.exe`。
+2. 等待主要处理模块与模型加载完成。
+3. 选择输入类型、输入路径、输出文件夹和修复模式，点击“点我开始一键去码”。
+
+发行包已包含所需模型，无需单独安装 Python 或下载模型。
+
+> [!IMPORTANT]
+> CUDA 包中的 DeepCreamPy `bar.onnx` / `mosaic.onnx` 仍固定使用 CPU：这两个旧模型在 CUDA12/cuDNN9 下会产生非有限值。日志会明确显示 ONNX 会话已启用 CUDA、混合状态还是纯 CPU，并说明兼容性策略。
+
+### 从源码运行
+
+当前项目基于 **Python 3.10.11** 构建。其他版本尚未确认兼容性。
+
+```powershell
+git clone https://github.com/Cec1c/Aletheia-Lens.git
+cd Aletheia-Lens
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-NVIDIA GPU 环境：
+使用 NVIDIA GPU 时，将最后一行替换为：
 
-```
+```powershell
 pip install -r requirements-gpu.txt
 ```
-源码运行 RAR 压缩包还需要安装 7-Zip，并确保 `7z.exe` 位于默认安装目录或 `PATH`；打包版已经内置所需文件。
 
-安装完成后（你需要先把下边模型安装齐全）
-```
+源码运行 RAR 压缩包还需要安装 [7-Zip](https://www.7-zip.org/)，并确保 `7z.exe` 位于默认安装目录或 `PATH`；打包版已经内置所需文件。
+
+从 [模型 Release](https://github.com/Cec1c/Aletheia-Lens/releases/tag/models-v1) 下载其余模型，放入以下位置：
+
+| 文件路径 | 用途 | 获取方式 |
+| --- | --- | --- |
+| `models/mrcnn/weights.onnx` | 遮挡区域检测 | 模型 Release |
+| `models/esrgan/4x-Fatal-Pixels.onnx` | ESRGAN 放大模型 | 模型 Release |
+| `models/esrgan/4x-Fatal-Pixels.onnx.data` | ESRGAN 外部权重 | 模型 Release，与上一文件一起放置 |
+| `models/deepcreampy/bar.onnx` | 色条修复 | 已包含在仓库中 |
+| `models/deepcreampy/mosaic.onnx` | 马赛克修复 | 已包含在仓库中 |
+
+随后启动：
+
+```powershell
 python main.py
 ```
-### 模型安装
 
-如果你是直接下载的release版本你无需关注本部分，为了方便使用我就顺便集成进去了，（侵删）
+## 使用说明
 
-如果你是python办法下载源代码自行运行的
+### 选择输入
 
-考虑到用到的deepcream模型是onnx导出过的，这个就集成进models文件夹里了
+| 输入类型 | 支持内容 | 处理方式 |
+| --- | --- | --- |
+| 单图片模式 | PNG、JPEG、BMP、TIFF、静态 WebP | 处理指定图片，输出 PNG |
+| 文件夹模式 | 多层目录中的受支持图片 | 递归处理，可保留目录结构或平铺输出 |
+| 压缩包模式 | ZIP、7Z、RAR | 解压后处理图片，在输出文件夹中保留包内目录结构 |
 
-运行时需要以下 ONNX 文件：
+**文件夹输出目录必须位于输入目录之外。** 输入路径、输出路径和日志支持日文字符。
 
-- `models/mrcnn/weights.onnx`
-- `models/esrgan/4x-Fatal-Pixels.onnx`
-- `models/esrgan/4x-Fatal-Pixels.onnx.data`
+### 选择修复模式
 
-DeepCreamPy 的 `bar.onnx` 和 `mosaic.onnx` 已包含在仓库中。其余模型由项目的模型 Release 提供。
+| 模式 | 功能 | 使用建议 |
+| --- | --- | --- |
+| 模式 I | 色条自动修复 | 带黑条或色块的图片优先选择此模式 |
+| 模式 II | 马赛克自动修复 | 适用于马赛克遮挡，可保留透明通道 |
+| 模式 III | 马赛克修复并放大 | 会破坏透明背景；游戏素材慎用，厚重马赛克的效果可能较差 |
 
-注意命名必须对的上
+修复效果取决于原图与模型能力，遮挡越重，结果越容易失真。
 
-看到程序模型部分全绿就意味着正常打开了
+### 去网点预处理
 
-# 使用办法
-实际上相当简单啊，我相信大多数人一打开就会了
+扫描漫画存在密集印刷点阵时，可以勾选“处理前去除漫画网点”。该功能默认关闭，启用后可选择轻度、中度或强度，默认中度。
 
-**另外这个工具只支持二次元图片**
+预处理会在模式 I / II / III 之前执行，并保留 Alpha 透明通道。强度越高，网点通常越少，但线条和纹理也可能损失；没有明显网点的图片建议保持关闭。
 
-先选择输入类型：单图片、文件夹或压缩包模式。图片支持 PNG、JPEG、BMP、TIFF 和静态 WebP；压缩包模式支持 ZIP、7Z 和 RAR，处理后保留包内目录结构；保留结构的文件夹和压缩包会按“源完整路径 + 处理配置”创建独立的 `after_<名称>_<短哈希>` 目录，结果文件在完整原文件名后追加 `.processed.png`。平铺模式使用输入根、源相对路径和处理配置生成稳定 SHA-256 名称，避免目录压平或跨任务复用输出目录时同名覆盖。处理配置包含修复模式以及启用时的去网点强度。文件夹输出目录必须位于输入目录之外。
+### 输出文件
 
-为避免压缩炸弹或链接越界，单个压缩包最多包含 20,000 个成员、解压后总大小最多 20 GiB。解压前会拒绝绝对路径、父目录跳转、Windows 设备名、规范化后冲突的目标，以及符号链接、目录联接和 RAR 重定向，并检查临时目录剩余空间。
+- 单图自动处理输出 `processed_<原文件名>.png`；启用去网点后附加 `.descreen-<强度>`。
+- 保留结构的文件夹与压缩包输出到 `after_<名称>_<短哈希>`，图片在完整原文件名后追加 `.processed.png`。
+- 平铺输出使用稳定的 SHA-256 文件名，避免不同目录、不同任务中的同名文件互相覆盖。
+- 去网点强度会参与输出命名或目录哈希，区分不同处理配置。
 
-![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E6%A8%A1%E5%BC%8F.png)
+<details>
+<summary>批量输出与压缩包边界</summary>
 
-然后选择输入输出文件夹，输入文件夹就是你要修复的图片所在的文件夹，输出文件夹就是修复后的图片存放的文件夹
+保留结构的输出目录按“源完整路径 + 处理配置”生成命名空间；平铺输出按输入根、源相对路径和处理配置生成文件名。处理配置包含修复模式以及启用时的去网点强度。
 
-输出文件夹会默认保留原先文件夹的结构，同时最顶层使用 `after_<名称>_<短哈希>` 区分不同输入和处理模式。
+单个压缩包最多包含 20,000 个成员，解压后总大小最多 20 GiB。解压前会拒绝绝对路径、父目录跳转、Windows 设备名、规范化后冲突的目标，以及符号链接、目录联接和 RAR 重定向，并检查临时目录剩余空间。
 
-![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E9%80%89%E6%8B%A9%E6%96%87%E4%BB%B6%E5%A4%B9.png)
+</details>
 
-接着选择模式，对于大部分本子用的黑条去码，选择模式I，对色块的漫画去码效果应该是不赖的
+## 实验性功能
 
-对于一般的马赛克选择模式II
+> [!WARNING]
+> 该手动涂抹功能除了能跑以外特别难用，这个项目也终于到需要重构的阶段了
 
-模式III不是很建议使用，出来的效果有时很诡异
+### 手动标注修复
 
-如果原图来自扫描漫画并带有密集印刷点阵，可以勾选“处理前去除漫画网点”。该预处理默认关闭，可选轻度、中度、强度三级，默认中度；它会在模式 I/II/III 之前抑制颜色通道中的高频网点，并原样保留 Alpha 透明通道。强度越高，网点通常越少，但线条、纹理等细节损失风险也越高；没有明显印刷点阵的图片建议保持关闭。启用后，单图文件名会带 `.descreen-<强度>`，批量任务的输出哈希也会区分强度，避免覆盖其他处理结果。
+入口：**单图片模式 + 模式 I → 高级功能（实验性功能）→ 手动标注修复**。
 
-![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E5%A4%84%E7%90%86%E6%A8%A1%E5%BC%8F.png)
+1. 选择图片和输出文件夹。进入编辑器后，可以先“自动检测”，也可以直接用画笔标出漏检区域。
+2. 绿色半透明区域表示选区；用橡皮擦除误检，或预览并应用“扩大选区”。自动检测会替换当前选区，支持撤销。
+3. 点击“按当前标注修复”，切换工作图与修复结果检查效果。不满意时返回标注继续修改。
+4. 点击“另存结果”，保存为 `manual_<原文件名>.png`。重名时自动追加序号，保留原图和已有结果。
 
-接着一切就绪，点击开始处理即可
+| 操作 | 方法 |
+| --- | --- |
+| 缩放 | 滚轮或加减按钮；“适应窗口”恢复全图视野 |
+| 平移 | 右键拖动，或选择“平移”工具 |
+| 撤销 / 重做 | 按钮，或 `Ctrl+Z` / `Ctrl+Y` |
+| 调整选区 | 画笔、橡皮、笔刷大小、清空、扩大预览及应用 |
+| 比较结果 | 切换“标注”“工作图”“修复结果” |
 
-需要注意的是，执行前请确保模块都加载好了
+笔刷和扩大范围均按原图像素计算。每次修复都从本次工作图开始，仅替换选区内的颜色并保留透明通道；修改选区后，需要重新修复才能保存。启用去网点时只在打开编辑器时预处理一次，输出名带 `.descreen-<强度>`。
 
-![alt text](https://github.com/Cec1c/Aletheia-Lens/blob/main/readmeimg/%E6%A8%A1%E5%9E%8B%E7%8A%B6%E6%80%81.png)
+目前仅支持静态单图片和模式 I。编辑器打开后固定本次输入和处理配置；检测或修复时可以关闭窗口，但后台任务仍会完成，结束前不能启动新的处理任务。批量审核、模型替换和整体重构留待后续处理。
 
-# 工具说明
+## 开发与测试
 
-本工具基于<a href="https://github.com/cookieY/DeepCreamPy">deepcreampy</a> 和 <a href="https://github.com/natethegreate/hent-AI">hent-AI</a> 
+安装依赖及模型后执行：
 
-还使用了<a href="https://openmodeldb.info/models/4x-Fatal-Pixels">4x-Fatal-Pixels</a> 的 ONNX 转换模型。
+```powershell
+python -m unittest discover -s tests -v
+python main.py --runtime-smoke-test
+```
 
-去网点预处理的处理思路参考了 <a href="https://github.com/natethegreate/Screentone-Remover">Screentone-Remover</a>，本项目中的滤镜代码为独立实现。
+本机图形界面与手动修复流程验证：
 
-前者提供对涂抹部分去码，中者用于识别并涂抹码区，后者用于放大功能
+```powershell
+python tools/verify_manual_mask.py
+```
 
-使用了前人 [fastapi](https://github.com/fajlkdsjfajdf/deepcreampy-fastapi) 的调用处理过程，在基础上修改了一些调用，并做了一个GUI窗体
+该脚本使用合成图片、程序化交互和真实模型，验证结果与截图写入 `.verification/manual-mask/`。它需要可用的桌面图形环境。
 
-以及使用了免费字体：<a href="http://www.sucaijishi.com/font-37-792-1.html">素材集市康康体</a>。路径和日志中的日文字符由 <a href="https://github.com/notofonts/noto-cjk">Noto Sans CJK JP</a> 提供，该字体使用 SIL Open Font License 1.1，许可证随字体一起打包。
+项目使用 PyInstaller 打包，配置见 [main.spec](main.spec)，CPU / CUDA12 构建与发布流程见 [GitHub Actions 配置](.github/workflows/build-and-release.yml)。
 
-感谢以上
+## 致谢
 
-# 报错或者疑难杂症
+| 项目或资源 | 用途 |
+| --- | --- |
+| [DeepCreamPy](https://github.com/cookieY/DeepCreamPy) | 遮挡区域修复 |
+| [hent-AI](https://github.com/natethegreate/hent-AI) | 遮挡区域识别 |
+| [4x-Fatal-Pixels](https://openmodeldb.info/models/4x-Fatal-Pixels) | ESRGAN 放大模型，本项目使用其 ONNX 转换版本 |
+| [Screentone-Remover](https://github.com/natethegreate/Screentone-Remover) | 去网点预处理思路参考，滤镜代码为本项目独立实现 |
+| [deepcreampy-fastapi](https://github.com/fajlkdsjfajdf/deepcreampy-fastapi) | 调用流程参考 |
+| [素材集市康康体](http://www.sucaijishi.com/font-37-792-1.html) | 界面中文字体 |
+| [Noto Sans CJK JP](https://github.com/notofonts/noto-cjk) | 日文路径及日志字体，SIL Open Font License 1.1 许可证随字体打包 |
 
-项目包含 ONNX、CUDA 打包、压缩包安全和批量输出的自动化回归测试；如仍遇到问题可以提交 issue。
+## 问题反馈
 
-或者其他疑难杂症加入Q群反馈 ：829569018
+遇到错误或有功能建议，请提交 [Issue](https://github.com/Cec1c/Aletheia-Lens/issues)。反馈时说明软件版本、CPU / CUDA 版本、输入类型、修复模式和日志，有助于定位问题。
 
+QQ 交流群：**829569018**。
 
+## 许可证
 
-
+本项目采用 [GNU GPL v3](LICENSE)。所使用模型、字体及第三方组件遵循各自的许可证。

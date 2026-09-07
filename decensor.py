@@ -27,6 +27,12 @@ def find_mask(colored):
 def find_regions(image, mask_color):
     pixels = np.array(image)
     array = np.all(pixels == mask_color, axis=2).astype(np.uint8)
+    return find_mask_regions(array)
+
+
+def find_mask_regions(array):
+    """Find four-connected regions from an explicit two-dimensional mask."""
+    array = np.ascontiguousarray(array, dtype=np.uint8)
     n_components, labeled = cv2.connectedComponentsWithAlgorithm(
         array,
         4,
@@ -42,8 +48,29 @@ def find_regions(image, mask_color):
     return regions
 
 
+def manual_region_bounds(image, region):
+    """Include every selected pixel, also on thin images and at image edges."""
+    points = np.asarray(region)
+    low, high = points.min(axis=0), points.max(axis=0) + 1
+    side = max(256, int(np.ceil(max(high - low) * 1.5)))
+    width, height = min(side, image.width), min(side, image.height)
+    left = max(0, min(int((low[0] + high[0] - width) // 2), image.width - width))
+    top = max(0, min(int((low[1] + high[1] - height) // 2), image.height - height))
+    return left, top, left + width, top + height
+
+
 @timer_decorator
-def decensor(ori: Image, colored: Image, is_mosaic: bool):
+def decensor(ori: Image, colored: Image, is_mosaic: bool, *, repair_mask=None):
+    explicit_mask = repair_mask is not None
+    if explicit_mask:
+        repair_mask = np.asarray(repair_mask)
+        if repair_mask.dtype != np.bool_ or repair_mask.shape != (ori.height, ori.width):
+            raise ValueError("修复选区必须是与原图同尺寸的二维布尔遮罩")
+        if not repair_mask.any():
+            return ori.copy()
+        ori = ori.convert("RGBA" if "A" in ori.getbands() or "transparency" in ori.info else "RGB")
+        source_pixels = np.array(ori)
+
     # save the alpha channel if the image has an alpha channel
     has_alpha = False
     if ori.mode == "RGBA":
@@ -56,7 +83,9 @@ def decensor(ori: Image, colored: Image, is_mosaic: bool):
     if ori_array.ndim != 3:
         print("输入图像维度不正确, 可能是一张灰度图")
         return ori
-    if is_mosaic:
+    if explicit_mask:
+        mask = np.repeat((~repair_mask)[None, :, :, None], 3, axis=3).astype(np.uint8)
+    elif is_mosaic:
         # if mosaic decensor, mask is empty
         colored = colored.convert('RGB')
         color_array = image_to_array(colored)
@@ -67,14 +96,16 @@ def decensor(ori: Image, colored: Image, is_mosaic: bool):
         mask = find_mask(ori_array_mask)
 
     # colored image is only used for finding the regions
-    regions = find_regions(colored.convert('RGB'), [v * 255 for v in MASK_COLOR])
+    regions = (find_mask_regions(repair_mask) if explicit_mask else
+               find_regions(colored.convert('RGB'), [v * 255 for v in MASK_COLOR]))
     print("Found {region_count} censored regions in this image!".format(region_count=len(regions)))
     if len(regions) == 0 and not is_mosaic:
         print("No green (0,255,0) regions detected! Make sure you're using exactly the right color.")
         return ori
 
     def predict_region(region):
-        bounding_box = expand_bounding(ori, region, expand_factor=1.5)
+        bounding_box = (manual_region_bounds(ori, region) if explicit_mask else
+                        expand_bounding(ori, region, expand_factor=1.5))
         crop_img = ori.crop(bounding_box)
 
         # convert mask back to image
@@ -102,6 +133,8 @@ def decensor(ori: Image, colored: Image, is_mosaic: bool):
 
         # Queue prediction request.
         pred_img_array = predict(crop_img_array, mask_array, is_mosaic)
+        if explicit_mask and (np.shape(pred_img_array) != (256, 256, 3) or not np.isfinite(pred_img_array).all()):
+            raise ValueError("修复模型返回了无效图像，请重试")
         pred_img_array = (255.0 * ((pred_img_array + 1.0) / 2.0)).astype(np.uint8)
         return pred_img_array, bounding_box
 
@@ -133,4 +166,9 @@ def decensor(ori: Image, colored: Image, is_mosaic: bool):
         output_img_array = np.concatenate((output_img_array, alpha_channel), axis=2)
 
     print("Decensored image. Returning it.")
-    return Image.fromarray(output_img_array.astype('uint8'))
+    output_pixels = output_img_array.astype('uint8')
+    if explicit_mask:
+        # Preserve untouched pixels byte-for-byte, including natural green.
+        source_pixels[repair_mask, :3] = output_pixels[repair_mask, :3]
+        return Image.fromarray(source_pixels)
+    return Image.fromarray(output_pixels)

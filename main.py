@@ -49,6 +49,31 @@ SCREENTONE_LEVEL_LABELS = {
     "中度": 2,
     "强度": 3,
 }
+EXPERIMENTAL_MANUAL_WARNING = "该手动涂抹功能除了能跑以外特别难用，这个项目也终于到需要重构的阶段了"
+
+
+def viewport_work_area():
+    """Use the current monitor's work area, excluding the Windows taskbar."""
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        class MonitorInfo(ctypes.Structure):
+            _fields_ = [("size", wintypes.DWORD), ("monitor", wintypes.RECT),
+                        ("work", wintypes.RECT), ("flags", wintypes.DWORD)]
+
+        user32 = ctypes.windll.user32
+        user32.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+        user32.MonitorFromPoint.restype = wintypes.HANDLE
+        user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(MonitorInfo)]
+        position = dpg.get_viewport_pos()
+        handle = user32.MonitorFromPoint(wintypes.POINT(int(position[0]), int(position[1])), 2)
+        info = MonitorInfo()
+        info.size = ctypes.sizeof(info)
+        if user32.GetMonitorInfoW(handle, ctypes.byref(info)):
+            return info.work.left, info.work.top, info.work.right, info.work.bottom
+    # Keep scrolling available on platforms without monitor work-area queries.
+    return 0, 0, 1920, 1080
 
 
 def _png_output_name(filename):
@@ -315,8 +340,12 @@ class DeepCreampyApp:
         self.model_loaded = False
         self.runtime_status_signature = None
         self.path_font = None
+        self.ui_font = None
         self.screentone_enabled = False
         self.screentone_level = 2
+        self.manual_editor = None
+        self._editor_viewport = None
+        self._main_layout_size = None
         
         # 初始化Dear PyGui
         dpg.create_context()
@@ -327,6 +356,7 @@ class DeepCreampyApp:
             large_icon=icon_path,
             width=600,
             height=780,
+            min_width=600,
         )
         dpg.setup_dearpygui()
         
@@ -388,6 +418,7 @@ class DeepCreampyApp:
                             dpg.add_font_range_hint(dpg.mvFontRangeHint_Chinese_Simplified_Common)
                             dpg.add_font_range_hint(dpg.mvFontRangeHint_Chinese_Full)
                         dpg.bind_font(font1)
+                        self.ui_font = font1
                         print(f"成功加载字体: {font_path}")
                         font_loaded = True
                         break
@@ -549,174 +580,184 @@ class DeepCreampyApp:
     def create_main_window(self):
         """创建主窗口和所有控件"""
         with dpg.window(tag="主窗口", label="Aletheia Lens",autosize=True):
-            
-            # 1. 文件选择部分 - 合并输入输出
-            with dpg.collapsing_header(label="在这里选择要处理的素材或图片路径", default_open=True):
-                # 输入类型选择
-                with dpg.group(horizontal=True):
-                    dpg.add_text("输入类型:")
-                    dpg.add_radio_button(
-                        items=["单图片模式", "文件夹模式", "压缩包模式"],
-                        tag="输入类型选择",
-                        default_value="单图片模式",  # 默认图片模式
-                        callback=self.on_input_type_change
-                    )
-                    
-                dpg.add_text("选择文件夹模式会自动遍历文件夹下所有的图片文件\n同时不会改变文件夹结构")
-                # 输入路径
-                with dpg.group(horizontal=True):
-                    dpg.add_text("输入路径:")
-                    dpg.add_input_text(
-                        tag="输入路径",
-                        hint="选择输入路径...",
-                        width=400
-                    )
-                    dpg.add_button(
-                        label="选择",
-                        callback=self.browse_input
-                    )
-                
-                # 输出路径
-                with dpg.group(horizontal=True):
-                    dpg.add_text("输出路径:")
-                    dpg.add_input_text(
-                        tag="输出路径",
-                        hint="选择输出路径...",
-                        width=400
-                    )
-                    dpg.add_button(
-                        label="选择",
-                        callback=self.browse_output
-                    )
-            
-            # 2. 处理模式选择
-            with dpg.collapsing_header(label="在这里选择处理模式", default_open=True):
-                dpg.add_text("一般情况下如大部分打黑条的本子请选模式I")
-                dpg.add_text("对于马赛克，越厚码越奇怪和诡异，模式III慎用")
-                dpg.add_radio_button(
-                    items=[
-                        "模式I: 色条自动修复",
-                        "模式II: 马赛克自动修复", 
-                        "模式III: 马赛克修复并放大"
-                    ],
-                    tag="模式选择",
-                    default_value="模式I: 色条自动修复",
-                    callback=self.on_mode_change
-                )
-                dpg.add_text("模式III会毁坏透明背景，游戏素材等含透明图层的慎用")
-                dpg.add_separator()
-                with dpg.group(horizontal=True):
-                    dpg.add_checkbox(
-                        label="处理前去除漫画网点",
-                        tag="去网点复选框",
-                        default_value=False,
-                        callback=self.on_screentone_enabled_change,
-                    )
-                    dpg.add_combo(
-                        items=list(SCREENTONE_LEVEL_LABELS),
-                        tag="去网点强度",
-                        default_value="中度",
-                        width=90,
-                        enabled=False,
-                        callback=self.on_screentone_level_change,
-                    )
-                dpg.add_text(
-                    "仅用于带印刷点阵的漫画；强度越高，网点越少，但细节损失越明显",
-                    color=(150, 150, 150, 255),
-                )
-            
-            # 3. 文件夹选项（仅文件夹模式显示）
-            with dpg.collapsing_header(label="在这里调整文件夹选项", tag="文件夹选项区域", show=False):
-                dpg.add_checkbox(
-                    label="保留文件夹结构（在顶层文件夹前添加'after_'前缀）",
-                    tag="保留结构复选框",
-                    default_value=True,
-                    callback=self.on_preserve_structure_change
-                )
-                dpg.add_text("启用时：创建'after_原文件夹名'并保持相同目录结构\n禁用时：所有处理后的图片直接放在输出文件夹中", 
-                           color=(150, 150, 150, 255))
-            
-            # 4. 统计信息（仅文件夹模式显示）
-            with dpg.collapsing_header(label="现在处理得怎么样啦？", tag="统计信息区域", show=False):
-                with dpg.group(horizontal=True):
-                    dpg.add_text("总共我要处理这么多:")
-                    dpg.add_text("0", tag="图片数量")
-                
-                with dpg.group(horizontal=True):
-                    dpg.add_text("现在我处理的这么多:")
-                    dpg.add_text("0/0", tag="进度文本")
-                
-                dpg.add_progress_bar(
-                    tag="进度条",
-                    default_value=0.0,
-                    width=-1
-                )
-            
-            # 5. 模块状态检测
-            with dpg.collapsing_header(label="这些东西必须装好才能用哈", default_open=True):
-                dpg.add_text("模块可用性:")
-                
-                # processer模块状态
-                with dpg.group(horizontal=True):
-                    dpg.add_text("主要模块(processer):")
-                    dpg.add_text("加载中...", tag="processer状态", color=(255, 165, 0, 255))
-                    dpg.add_button(
-                        label="重新加载",
-                        tag="processer状态_按钮",
-                        callback=self.reload_processer,
-                        user_data="processer模块"
-                    )
-                
-                # 模型状态
-                models = [
-                    ("放大模型(4x-Fatal-Pixels)", "放大模型状态"),
-                    ("检测模型(weights)", "检测模型状态")
-                ]
-                
-                for model_name, tag in models:
+
+            with dpg.group(tag="主窗口内容"):
+                # 1. 文件选择部分 - 合并输入输出
+                with dpg.collapsing_header(label="在这里选择要处理的素材或图片路径", default_open=True):
+                    # 输入类型选择
                     with dpg.group(horizontal=True):
-                        dpg.add_text(f"{model_name}:")
-                        dpg.add_text("等待processer...", tag=tag, color=(150, 150, 150, 255))
-                        dpg.add_button(
-                            label="下载",
-                            tag=f"{tag}_按钮",
-                            callback=lambda s, a, u: self.download_model(u),
-                            user_data=model_name
+                        dpg.add_text("输入类型:")
+                        dpg.add_radio_button(
+                            items=["单图片模式", "文件夹模式", "压缩包模式"],
+                            tag="输入类型选择",
+                            default_value="单图片模式",  # 默认图片模式
+                            callback=self.on_input_type_change
                         )
-            
-            # 6. 执行按钮和关于按钮
-            dpg.add_spacer(height=15)
-            with dpg.group(horizontal=True):
-                dpg.add_spacer(width=150)  # 居中对齐
-                dpg.add_button(
-                    label="点我开始一键去码",
-                    tag="执行按钮",
-                    callback=self.execute_processing,
-                    width=200,  # 缩小宽度
-                    height=35
-                )
-                dpg.add_spacer(width=150)
-                dpg.add_spacer(height=20)  # 按钮间距
-                dpg.add_button(
-                    label="O.O",
-                    tag="关于按钮",
-                    callback=self.show_about_dialog,
-                    width=30,  # 较小的关于按钮
-                    height=25
-                )
-            
-            # 7. 日志输出
-            with dpg.collapsing_header(label="告诉你我做了什么", default_open=True):
-                dpg.add_input_text(
-                    tag="日志输出",
-                    multiline=True,
-                    readonly=True,
-                    height=120,
-                    width=-1
-                )
+
+                    dpg.add_text("选择文件夹模式会自动遍历文件夹下所有的图片文件\n同时不会改变文件夹结构", tag="输入说明")
+                    # 输入路径
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("输入路径:")
+                        dpg.add_input_text(
+                            tag="输入路径",
+                            hint="选择输入路径...",
+                            width=400
+                        )
+                        dpg.add_button(
+                            label="选择",
+                            callback=self.browse_input
+                        )
+
+                    # 输出路径
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("输出路径:")
+                        dpg.add_input_text(
+                            tag="输出路径",
+                            hint="选择输出路径...",
+                            width=400
+                        )
+                        dpg.add_button(
+                            label="选择",
+                            callback=self.browse_output
+                        )
+
+                # 2. 处理模式选择
+                with dpg.collapsing_header(label="在这里选择处理模式", default_open=True):
+                    dpg.add_text("一般情况下如大部分打黑条的本子请选模式I")
+                    dpg.add_text("对于马赛克，越厚码越奇怪和诡异，模式III慎用")
+                    dpg.add_radio_button(
+                        items=[
+                            "模式I: 色条自动修复",
+                            "模式II: 马赛克自动修复",
+                            "模式III: 马赛克修复并放大"
+                        ],
+                        tag="模式选择",
+                        default_value="模式I: 色条自动修复",
+                        callback=self.on_mode_change
+                    )
+                    dpg.add_text("模式III会毁坏透明背景，游戏素材等含透明图层的慎用")
+                    dpg.add_separator()
+                    with dpg.group(horizontal=True):
+                        dpg.add_checkbox(
+                            label="处理前去除漫画网点",
+                            tag="去网点复选框",
+                            default_value=False,
+                            callback=self.on_screentone_enabled_change,
+                        )
+                        dpg.add_combo(
+                            items=list(SCREENTONE_LEVEL_LABELS),
+                            tag="去网点强度",
+                            default_value="中度",
+                            width=90,
+                            enabled=False,
+                            callback=self.on_screentone_level_change,
+                        )
+                    dpg.add_text(
+                        "仅用于带印刷点阵的漫画；强度越高，网点越少，但细节损失越明显",
+                        tag="去网点说明",
+                        color=(150, 150, 150, 255),
+                    )
+
+                with dpg.collapsing_header(label="高级功能（实验性功能）", default_open=False):
+                    dpg.add_button(label="手动标注修复", tag="手动标注入口", callback=self.open_manual_editor)
+                    dpg.add_text("仅支持单图片 + 模式 I；自动检测后可补画、擦除选区，再执行修复。",
+                                 tag="手动标注说明", wrap=540, color=(150, 150, 150, 255))
+                    dpg.add_text(EXPERIMENTAL_MANUAL_WARNING, tag="实验性功能警告", wrap=540,
+                                 color=(255, 190, 95, 255))
+
+                # 3. 文件夹选项（仅文件夹模式显示）
+                with dpg.collapsing_header(label="在这里调整文件夹选项", tag="文件夹选项区域", show=False):
+                    dpg.add_checkbox(
+                        label="保留文件夹结构（在顶层文件夹前添加'after_'前缀）",
+                        tag="保留结构复选框",
+                        default_value=True,
+                        callback=self.on_preserve_structure_change
+                    )
+                    dpg.add_text("启用时：创建'after_原文件夹名'并保持相同目录结构\n禁用时：所有处理后的图片直接放在输出文件夹中",
+                               color=(150, 150, 150, 255))
+
+                # 4. 统计信息（仅文件夹模式显示）
+                with dpg.collapsing_header(label="现在处理得怎么样啦？", tag="统计信息区域", show=False):
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("总共我要处理这么多:")
+                        dpg.add_text("0", tag="图片数量")
+
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("现在我处理的这么多:")
+                        dpg.add_text("0/0", tag="进度文本")
+
+                    dpg.add_progress_bar(
+                        tag="进度条",
+                        default_value=0.0,
+                        width=-1
+                    )
+
+                # 5. 模块状态检测
+                with dpg.collapsing_header(label="这些东西必须装好才能用哈", default_open=True):
+                    dpg.add_text("模块可用性:")
+
+                    # processer模块状态
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("主要模块(processer):")
+                        dpg.add_text("加载中...", tag="processer状态", color=(255, 165, 0, 255))
+                        dpg.add_button(
+                            label="重新加载",
+                            tag="processer状态_按钮",
+                            callback=self.reload_processer,
+                            user_data="processer模块"
+                        )
+
+                    # 模型状态
+                    models = [
+                        ("放大模型(4x-Fatal-Pixels)", "放大模型状态"),
+                        ("检测模型(weights)", "检测模型状态")
+                    ]
+
+                    for model_name, tag in models:
+                        with dpg.group(horizontal=True):
+                            dpg.add_text(f"{model_name}:")
+                            dpg.add_text("等待processer...", tag=tag, color=(150, 150, 150, 255))
+                            dpg.add_button(
+                                label="下载",
+                                tag=f"{tag}_按钮",
+                                callback=lambda s, a, u: self.download_model(u),
+                                user_data=model_name
+                            )
+
+                # 6. 执行按钮和关于按钮
+                dpg.add_spacer(height=15)
+                with dpg.group(horizontal=True):
+                    dpg.add_spacer(width=150, tag="执行按钮左间距")
+                    dpg.add_button(
+                        label="点我开始一键去码",
+                        tag="执行按钮",
+                        callback=self.execute_processing,
+                        width=200,  # 缩小宽度
+                        height=35
+                    )
+                    dpg.add_spacer(width=12)
+                    dpg.add_button(
+                        label="O.O",
+                        tag="关于按钮",
+                        callback=self.show_about_dialog,
+                        width=30,  # 较小的关于按钮
+                        height=25
+                    )
+
+                # 7. 日志输出
+                with dpg.collapsing_header(label="告诉你我做了什么", default_open=True):
+                    dpg.add_input_text(
+                        tag="日志输出",
+                        multiline=True,
+                        readonly=True,
+                        height=120,
+                        width=-1
+                    )
 
             self.bind_path_font()
-    
+            if self.ui_font is not None:
+                dpg.bind_item_font("主窗口", self.ui_font)
+
     def on_input_type_change(self, sender, app_data):
         """输入类型改变回调"""
         input_type_map = {
@@ -766,6 +807,93 @@ class DeepCreampyApp:
             self.mode,
             screentone_level=self.active_screentone_level(),
         )
+
+    def open_manual_editor(self):
+        from mask_editor import MaskEditor
+
+        editor = getattr(self, "manual_editor", None)
+        if self.processing or (editor is not None and (not editor.closed or editor.busy)):
+            self.log_message("请先结束当前处理；关闭编辑器后，后台任务仍需等待结束。")
+            return
+        if self.input_type != "image" or self.mode != 1:
+            self.log_message("手动标注仅支持单图片模式和模式 I。")
+            return
+        source = dpg.get_value("输入路径").strip()
+        output = dpg.get_value("输出路径").strip()
+        if not os.path.isfile(source) or not is_supported_image(source):
+            self.log_message("请选择有效的静态图片文件。")
+            return
+        if not output or (os.path.exists(output) and not os.path.isdir(output)):
+            self.log_message("请选择有效的输出文件夹。")
+            return
+        if not PROCESSER_AVAILABLE:
+            self.log_message("请等待主要处理模块加载完成后再打开标注编辑器。")
+            return
+        self._editor_viewport = (dpg.get_viewport_width(), dpg.get_viewport_height(),
+                                 dpg.get_viewport_pos(), dpg.get_global_font_scale())
+        self.fit_viewport(max(1040, dpg.get_viewport_width()), max(900, dpg.get_viewport_height()))
+        self.manual_editor = MaskEditor(source, output, self.active_screentone_level(), self.log_message)
+        if self.ui_font is not None:
+            dpg.bind_item_font(self.manual_editor.tag("window"), self.ui_font)
+        if self.path_font is not None:
+            for name in ("filename", "status"):
+                dpg.bind_item_font(self.manual_editor.tag(name), self.path_font)
+
+    def fit_viewport(self, width, height):
+        left, top, right, bottom = viewport_work_area()
+        width, height = min(int(width), right - left), min(int(height), bottom - top)
+        x, y = dpg.get_viewport_pos()
+        position = (max(left, min(x, right - width)), max(top, min(y, bottom - height)))
+        dpg.configure_viewport(0, width=width, height=height, x_pos=int(position[0]), y_pos=int(position[1]))
+
+    def adapt_main_window(self):
+        """Fit the native viewport to rendered content, not the primary window."""
+        editor = getattr(self, "manual_editor", None)
+        if editor is not None and not editor.closed:
+            return
+        width = dpg.get_viewport_client_width()
+        if width < 1:
+            return
+        content_width = max(300, width - 32)
+        for item in ("输入说明", "去网点说明", "手动标注说明", "实验性功能警告"):
+            dpg.configure_item(item, wrap=content_width)
+        for item in ("输入路径", "输出路径"):
+            dpg.configure_item(item, width=max(160, width - 172))
+        dpg.configure_item("执行按钮左间距", width=max(0, (content_width - 270) // 2))
+        content_height = dpg.get_item_rect_size("主窗口内容")[1]
+        if content_height < 1:
+            return
+        size = (width, int(content_height))
+        if size == self._main_layout_size:
+            return
+        self._main_layout_size = size
+        chrome = dpg.get_viewport_height() - dpg.get_viewport_client_height()
+        self.fit_viewport(dpg.get_viewport_width(), max(360, content_height + chrome + 16))
+
+    def tick_manual_editor(self):
+        editor = getattr(self, "manual_editor", None)
+        if editor is not None:
+            editor.tick()
+            if editor.closed and self._editor_viewport is not None:
+                width, height, position, scale = self._editor_viewport
+                self._editor_viewport = None
+                dpg.configure_viewport(0, width=width, height=height,
+                                       x_pos=int(position[0]), y_pos=int(position[1]))
+                dpg.set_global_font_scale(scale)
+                if self.ui_font is not None:
+                    dpg.bind_font(self.ui_font)
+                    dpg.bind_item_font("主窗口", self.ui_font)
+                self._main_layout_size = None
+        enabled = (self.input_type == "image" and self.mode == 1 and not self.processing
+                   and (editor is None or (editor.closed and not editor.busy)))
+        dpg.configure_item("手动标注入口", enabled=enabled)
+
+    def dispatch_ui_callbacks(self):
+        for job in dpg.get_callback_queue() or ():
+            try:
+                dpg.run_callbacks([job])
+            except Exception as exc:
+                self.log_message(f"操作失败：{exc}")
     
     def on_preserve_structure_change(self, sender, app_data):
         """保留结构复选框回调"""
@@ -837,6 +965,10 @@ class DeepCreampyApp:
     def execute_processing(self):
         """执行处理"""
         if self.processing:
+            return
+        editor = getattr(self, "manual_editor", None)
+        if editor is not None and (not editor.closed or editor.busy):
+            self.log_message("请先关闭手动标注编辑器并等待后台任务结束。")
             return
         
         # 验证输入
@@ -1210,8 +1342,18 @@ class DeepCreampyApp:
         self.log_message("主程序已启动")
         self.log_message("正在异步加载主要处理模块，请稍候...")
         
-        dpg.start_dearpygui()
-        dpg.destroy_context()
+        # Serialize editor callbacks and worker completions on the render thread.
+        dpg.configure_app(manual_callback_management=True)
+        try:
+            while dpg.is_dearpygui_running():
+                self.dispatch_ui_callbacks()
+                self.tick_manual_editor()
+                dpg.render_dearpygui_frame()
+                self.adapt_main_window()
+        finally:
+            if self.manual_editor is not None:
+                self.manual_editor.close()
+            dpg.destroy_context()
 
 def run_runtime_smoke_test(require_cuda=False, require_cuda_provider=False):
     """Run one real inference through every packaged ONNX model."""

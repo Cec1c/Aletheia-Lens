@@ -121,6 +121,7 @@ a = Analysis(
         'mrcnn.config',
         # 项目模块
         'processer',
+        'mask_editor',
         'screentone',
         'detector',
         'decensor',
