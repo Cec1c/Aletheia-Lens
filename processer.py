@@ -1,12 +1,36 @@
 import io
 import argparse
 import sys
-from PIL import Image
+from PIL import Image, ImageOps
 from detector import detector, apply_cover
 from decensor import decensor
 from esrgan import esrgan
 from image_formats import SUPPORTED_IMAGE_EXTENSIONS
 from screentone import remove_screentones
+
+
+def prepare_manual_image(image_bytes: bytes, screentone_level: int = 0) -> Image.Image:
+    """Decode and preprocess once before either detection or manual painting."""
+    with Image.open(io.BytesIO(image_bytes)) as source:
+        if getattr(source, "n_frames", 1) != 1:
+            raise ValueError("手动标注仅支持静态单图片")
+        image = ImageOps.exif_transpose(source)
+        has_alpha = "A" in image.getbands() or "transparency" in image.info
+        image = image.convert("RGBA" if has_alpha else "RGB")
+    if screentone_level:
+        image = remove_screentones(image, screentone_level)
+    return image
+
+
+def detect_manual_bars(image: Image.Image):
+    from detector import detect_bar_mask
+
+    return detect_bar_mask(image)
+
+
+def repair_manual_bars(image: Image.Image, mask) -> Image.Image:
+    """Repair from the fixed working image, never from an earlier result."""
+    return decensor(image, image, is_mosaic=False, repair_mask=mask)
 
 
 def process_bar_auto(image_bytes: bytes) -> Image.Image:

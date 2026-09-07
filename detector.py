@@ -318,6 +318,18 @@ def detector(image_bytes: bytes, is_mosaic=False):
     return image
 
 
+def detect_bar_mask(image):
+    """Return a full-resolution boolean mask; True marks a detected bar.
+
+    Unlike the legacy green overlay, this never interprets source colors as
+    annotations. The caller keeps its original image, including alpha.
+    """
+    pixels = np.asarray(image.convert("RGB"))
+    detection = detect_image(pixels)
+    masks = detection["masks"][:, :, detection["class_ids"] == 1]
+    return np.any(masks, axis=2).astype(np.bool_)
+
+
 def apply_cover(image, mask, dilation):
     # Copy color pixels from the original color image where mask is set
     green = np.zeros([image.shape[0], image.shape[1], image.shape[2]], dtype=np.uint8)
