@@ -8,16 +8,16 @@
 
 [![Release](https://img.shields.io/github/v/release/Cec1c/Aletheia-Lens?style=flat-square)](https://github.com/Cec1c/Aletheia-Lens/releases/latest) [![License](https://img.shields.io/github/license/Cec1c/Aletheia-Lens?style=flat-square&color=blue)](LICENSE) [![Downloads](https://img.shields.io/github/downloads/Cec1c/Aletheia-Lens/total?style=flat-square)](https://github.com/Cec1c/Aletheia-Lens/releases) [![Stars](https://img.shields.io/github/stars/Cec1c/Aletheia-Lens?style=flat-square)](https://github.com/Cec1c/Aletheia-Lens/stargazers)
 
-基于 DeepCreamPy、hent-AI 和 ONNX Runtime 的本地图像修复工具。
+在 Windows 上批量修复二次元图片中的遮挡区域。
 
-自动识别遮挡区域，处理单张图片、整个文件夹或压缩包；提供 Windows 图形界面与解压即用的发行包。
+Aletheia Lens 使用 DeepCreamPy、hent-AI 和 ONNX Runtime，支持单张图片、文件夹和压缩包。通过图形界面选择输入、模式与输出目录，发行包解压即可运行。
 
 [下载最新版](https://github.com/Cec1c/Aletheia-Lens/releases/latest) ｜ [快速开始](#快速开始) ｜ [使用说明](#使用说明) ｜ [实验性功能](#实验性功能) ｜ [问题反馈](#问题反馈)
 
 </div>
 
 > [!NOTE]
-> 仅适用于二次元图片。本文描述当前仓库源码，下载版本支持的功能请以对应 Release 的说明为准。
+> 本文对应当前源码。下载发行包时，可在对应 Release 说明中查看该版本包含的功能。
 
 ## 可以用来做什么？
 
@@ -118,7 +118,7 @@ python main.py
 | 模式 II | 马赛克自动修复 | 适用于马赛克遮挡，可保留透明通道 |
 | 模式 III | 马赛克修复并放大 | 会破坏透明背景；游戏素材慎用，厚重马赛克的效果可能较差 |
 
-修复效果取决于原图与模型能力，遮挡越重，结果越容易失真。
+先用少量代表性图片比较模式。遮挡较重时更容易出现失真，可据此选择处理方式。
 
 ### 去网点预处理
 
@@ -145,7 +145,7 @@ python main.py
 ## 实验性功能
 
 > [!WARNING]
-> 该手动涂抹功能除了能跑以外特别难用，这个项目也终于到需要重构的阶段了
+> 手动编辑器已可运行，操作体验仍较差。需要补选漏检区域时，可按下方步骤使用。
 
 ### 手动标注修复
 
@@ -166,7 +166,7 @@ python main.py
 
 笔刷和扩大范围均按原图像素计算。每次修复都从本次工作图开始，仅替换选区内的颜色并保留透明通道；修改选区后，需要重新修复才能保存。启用去网点时只在打开编辑器时预处理一次，输出名带 `.descreen-<强度>`。
 
-目前仅支持静态单图片和模式 I。编辑器打开后固定本次输入和处理配置；检测或修复时可以关闭窗口，但后台任务仍会完成，结束前不能启动新的处理任务。批量审核、模型替换和整体重构留待后续处理。
+目前仅支持静态单图片和模式 I，输入与处理配置在打开编辑器时固定。检测或修复期间关闭窗口，后台任务仍会继续；等待完成后再开始下一项处理。批量审核、模型替换与整体重构仍待后续开发。
 
 ## 开发与测试
 

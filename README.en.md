@@ -8,16 +8,16 @@
 
 [![Release](https://img.shields.io/github/v/release/Cec1c/Aletheia-Lens?style=flat-square)](https://github.com/Cec1c/Aletheia-Lens/releases/latest) [![License](https://img.shields.io/github/license/Cec1c/Aletheia-Lens?style=flat-square&color=blue)](LICENSE) [![Downloads](https://img.shields.io/github/downloads/Cec1c/Aletheia-Lens/total?style=flat-square)](https://github.com/Cec1c/Aletheia-Lens/releases) [![Stars](https://img.shields.io/github/stars/Cec1c/Aletheia-Lens?style=flat-square)](https://github.com/Cec1c/Aletheia-Lens/stargazers)
 
-A local image restoration tool powered by DeepCreamPy, hent-AI, and ONNX Runtime.
+Restore covered regions in anime-style illustrations on Windows, one image or a batch at a time.
 
-Detect covered regions and process individual images, folders, or archives with a Windows desktop interface and ready-to-run release packages.
+Aletheia Lens uses DeepCreamPy, hent-AI, and ONNX Runtime to process images, folders, and archives. Choose an input, mode, and output directory in the desktop interface; release packages are ready to run after extraction.
 
 [Download](https://github.com/Cec1c/Aletheia-Lens/releases/latest) ｜ [Quick start](#quick-start) ｜ [Usage](#usage) ｜ [Experimental features](#experimental-features) ｜ [Report an issue](#report-an-issue)
 
 </div>
 
 > [!NOTE]
-> Designed for anime-style illustrations only. This README describes the current source code; check the release notes for features available in a downloaded version. The desktop interface is currently in Chinese; this guide includes the relevant button labels.
+> This guide covers the current source; each Release lists the features included in that package. The desktop interface is in Chinese, with button labels translated in this guide.
 
 ## What you can do
 
@@ -118,7 +118,7 @@ python main.py
 | Mode II (“模式II”) | Automatic mosaic restoration | For pixelated regions; preserves the alpha channel |
 | Mode III (“模式III”) | Mosaic restoration and upscaling | Removes transparency; use with care for game assets. Heavy pixelation may produce poor results |
 
-Results depend on the source image and model capabilities. Heavily covered images are more likely to produce distorted results.
+Compare modes on a few representative images first. Heavy coverage is more likely to produce distorted details, so use those samples to choose a mode.
 
 ### Screentone preprocessing
 
@@ -145,7 +145,7 @@ Each archive is limited to 20,000 members and 20 GiB of extracted data. Before e
 ## Experimental features
 
 > [!WARNING]
-> The manual painting feature runs, but it is very difficult to use. This project has finally reached the point where it needs a refactor.
+> The manual editor runs, but remains difficult to use. Use the steps below when you need to mark regions that automatic detection missed.
 
 ### Manual mask editing and restoration
 
@@ -166,7 +166,7 @@ Open **Single image + Mode I → “高级功能（实验性功能）” (Advanc
 
 Brush size and expansion radius use original-image pixels. Each repair starts from the current session's working image, changes colors only inside the selection, and preserves transparency. After changing the mask, run repair again before saving. When screentone removal is enabled, it runs once when the editor opens; the output name includes `.descreen-<strength>`.
 
-Only static single images and mode I are supported. Input and processing settings are fixed for the editing session. You can close the editor during detection or repair, but the background task continues; you must wait for it to finish before starting another processing task. Batch review, model replacement, and broader refactoring are deferred.
+The editor currently supports only static single images in mode I, with input and settings fixed when it opens. Closing the window during detection or repair leaves the background task running; wait for it to finish before starting another task. Batch review, model replacement, and the broader refactor remain planned work.
 
 ## Development and testing
 
